@@ -1,0 +1,7 @@
+# 2026-10-09에 확인한 franka_ros2 humble 브랜치 커밋.
+# 나머지는 이 커밋의 공식 dependency.repos에서 그대로 가져온다.
+repositories:
+  franka_ros2:
+    type: git
+    url: https://github.com/frankarobotics/franka_ros2.git
+    version: 3b50164eabbe2d461baca007bbbbe03c024387bd

@@ -1,0 +1,13 @@
+# 공식 소스는 setup.sh로 가져오며 저장소에 복사하지 않는다.
+ros2_ws/src/vendor/
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+ros2_ws/sources.lock.repos
+ros2_ws/*.log
+build/
+*.csv
+__pycache__/
+*.pyc
+.vscode/
+.idea/
