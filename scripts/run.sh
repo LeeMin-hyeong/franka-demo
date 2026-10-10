@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fake Hardware 또는 오프라인 ROS 시각화만 실행한다. robot_ip 옵션은 제공하지 않는다.
+# 기본은 가상 제어. 실물은 real-* 모드와 대상 IP를 명시한 경우에만 선택한다.
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 
@@ -13,6 +13,11 @@ usage() {
   ./scripts/run.sh example [--duration SEC] [--no-rviz]
   ./scripts/run.sh example-command [--duration SEC]
   ./scripts/run.sh libfranka-preview [옵션]
+  ./scripts/run.sh real-server --robot-ip IP [--with-gripper] [--no-rviz]
+  ./scripts/run.sh real-state --robot-ip IP
+  ./scripts/run.sh real-command --robot-ip IP --joint N --delta RAD [--duration SEC]
+  ./scripts/run.sh real-command --robot-ip IP --home [--duration SEC]
+  ./scripts/run.sh real-command --robot-ip IP --gripper-width METERS [--duration SEC]
 
 인자가 없으면 Python MoveIt 데모를 시작한다.
 moveit            Fake Hardware/RViz를 시작하고 팔 또는 가상 그리퍼를 이동한다.
@@ -21,23 +26,31 @@ server            Fake Hardware/RViz만 준비하며 자동으로 움직이지 �
 example           Fake Hardware/RViz와 짧은 Python API 예제를 실행한다.
 example-command   이미 실행 중인 서버에 Python API 예제만 실행한다.
 libfranka-preview FCI 없이 C++ 궤적을 /joint_states로 재생한다.
+real-server      native Ubuntu의 실물 FCI 서버/현재 자세 유지 컨트롤러를 시작한다.
+real-state       이미 연결된 실물 서버의 상태만 읽는다. 이동 목표를 보내지 않는다.
+real-command     실물에 명시한 이동 목표를 보낸다. 기본 이동은 없으며 Python 전용이다.
 
 옵션:
   --language LANG MoveIt 클라이언트 언어: python 또는 cpp (기본값: python)
                   C++ 버전은 --language cpp로 선택한다. example은 Python 전용이다.
   --gripper-width METERS
-                  가상 그리퍼의 두 손가락 사이 전체 폭 [m], 0~0.08
-                  MoveIt 전용. --joint/--delta/--home과 함께 사용할 수 없다.
+                  두 손가락 사이 전체 폭 [m], 0~0.08
+                  가상 MoveIt 또는 real-command 전용. 팔 목표와 함께 사용할 수 없다.
   --joint N       1부터 7까지의 관절 번호 (기본값: 4)
   --delta RAD     현재값 대비 이동량 [rad] (기본값: 0.1)
   --duration SEC  이동 시간 [s] (기본값: 3.0)
+                  real-command 기본값은 5.0이다.
                   MoveIt에서는 실행 시간을 이 값 이상으로 늦출 수 있다.
   --rate HZ       Offline Preview 발행 주기 [Hz] (기본값: 30.0)
   --home          MoveIt의 공식 ready 자세로 이동한다.
   --no-rviz       RViz 창을 열지 않는다 (headless 검증용).
+  --robot-ip IP   실물 모드 전용, Control의 FCI IPv4 주소 (필수).
+  --with-gripper  real-server 전용, 장착된 공식 Franka Hand 서버도 연결한다.
   -h, --help      도움말
 
 MoveIt2와 Offline Preview는 같은 ROS_DOMAIN_ID에서 동시에 실행하지 마세요.
+실물은 System Image >=5.9.0, FCI 활성화, native PREEMPT_RT/실시간 권한이 필요합니다.
+real-server의 컨트롤러 활성화는 실제 제어를 시작합니다. 자동 이동 목표는 없습니다.
 USAGE
 }
 
@@ -45,7 +58,7 @@ mode=moveit
 case "${1:-}" in
   '') ;;
   -h|--help) usage; exit 0 ;;
-  moveit|moveit-command|server|example|example-command|libfranka-preview) mode="$1"; shift ;;
+  moveit|moveit-command|server|example|example-command|libfranka-preview|real-server|real-state|real-command) mode="$1"; shift ;;
   -*) ;;  # 실행 방식을 생략하고 옵션만 입력해도 기본 moveit을 사용한다.
   *) demo_die "알 수 없는 실행 방식: $1. --help를 참고하세요." ;;
 esac
@@ -64,9 +77,15 @@ joint_given=false
 delta_given=false
 home_given=false
 duration_given=false
+robot_ip=''
+robot_ip_given=false
+with_gripper=false
+with_gripper_given=false
+real=false
+[[ "$mode" != real-* ]] || real=true
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --joint|--delta|--duration|--rate|--language|--gripper-width)
+    --joint|--delta|--duration|--rate|--language|--gripper-width|--robot-ip)
       [[ $# -ge 2 ]] || demo_die "$1 뒤에 값이 필요합니다."
       case "$1" in
         --joint) joint="$2"; joint_given=true ;;
@@ -75,9 +94,11 @@ while [[ $# -gt 0 ]]; do
         --rate) rate="$2"; rate_given=true ;;
         --language) language="$2"; language_given=true ;;
         --gripper-width) gripper_width="$2"; gripper_width_given=true ;;
+        --robot-ip) robot_ip="$2"; robot_ip_given=true ;;
       esac
       shift 2 ;;
     --home) home=true; home_given=true; shift ;;
+    --with-gripper) with_gripper=true; with_gripper_given=true; shift ;;
     --no-rviz) rviz=false; shift ;;
     -h|--help) usage; exit 0 ;;
     *) demo_die "알 수 없는 옵션: $1" ;;
@@ -103,12 +124,37 @@ case "$mode" in
       demo_die '--no-rviz는 서버를 시작하는 실행 방식에서만 사용할 수 있습니다.'
     fi ;;
 esac
+if "$real"; then
+  "$robot_ip_given" || demo_die '실물 모드는 --robot-ip가 필수입니다. 기본 IP를 추정하지 않습니다.'
+  demo_validate_robot_ip "$robot_ip"
+  [[ "$language" == python ]] || demo_die '실물 명령은 공통 Python API를 사용합니다.'
+  "$duration_given" || duration=5.0
+  case "$mode" in
+    real-server|real-state)
+      if "$joint_given" || "$delta_given" || "$home_given" || "$gripper_width_given" || "$duration_given" || "$rate_given" || "$language_given"; then
+        demo_die 'real-server/real-state는 이동 옵션을 받지 않습니다. 이동은 real-command에서 지정하세요.'
+      fi
+      if [[ "$mode" == real-state ]] && { "$with_gripper_given" || ! "$rviz"; }; then
+        demo_die 'real-state는 --robot-ip만 받습니다.'
+      fi ;;
+    real-command)
+      "$rviz" && ! "$with_gripper_given" || demo_die 'real-command에서 서버 옵션을 사용할 수 없습니다.'
+      if ! "$home_given" && ! "$gripper_width_given"; then
+        "$joint_given" && "$delta_given" || demo_die '실물 이동은 --joint와 --delta를 모두 지정하세요. 또는 --home/--gripper-width를 지정하세요.'
+      fi
+      if "$home_given" && { "$joint_given" || "$delta_given"; }; then
+        demo_die '--home은 --joint/--delta와 함께 사용할 수 없습니다.'
+      fi ;;
+  esac
+elif "$robot_ip_given" || "$with_gripper_given"; then
+  demo_die '--robot-ip/--with-gripper는 real-* 모드 전용입니다. 기본 가상 모드에서는 연결하지 않습니다.'
+fi
 if [[ "$mode" == libfranka-preview ]] && "$language_given"; then
   demo_die 'libfranka-preview는 C++ 프리뷰이며 --language를 사용할 수 없습니다.'
 fi
 if "$gripper_width_given"; then
   [[ "$mode" != libfranka-preview ]] ||
-    demo_die '--gripper-width는 moveit 또는 moveit-command에서만 사용할 수 있습니다.'
+    demo_die '--gripper-width는 MoveIt 또는 real-command에서 사용하세요.'
   if "$joint_given" || "$delta_given" || "$home_given"; then
     demo_die '--gripper-width는 --joint/--delta/--home과 함께 사용할 수 없습니다.'
   fi
@@ -138,9 +184,21 @@ fi
 [[ "$rate" == *.* ]] || rate="$rate.0"
 [[ "$gripper_width" == *.* ]] || gripper_width="$gripper_width.0"
 demo_require_ubuntu
+if "$real"; then demo_require_real_pc; fi
 demo_source_workspace
 
 run_client_command() {
+  if [[ "$mode" == real-state ]]; then
+    ros2 run fr3_moveit_demo read_state.py --ros-args -p backend:=real -p "robot_ip:=$robot_ip"
+    return
+  fi
+  if [[ "$mode" == real-command ]]; then
+    printf 'REAL FR3 %s: 명시한 목표를 실제 로봇에 전송합니다.\n' "$robot_ip"
+    ros2 run fr3_moveit_demo moveit_demo.py --ros-args -p backend:=real -p "robot_ip:=$robot_ip" \
+      -p "joint:=$joint" -p "delta:=$delta" -p "duration:=$duration" -p "home:=$home" \
+      -p "gripper_width:=$gripper_width" -p wait_timeout:=30.0
+    return
+  fi
   if [[ "$mode" == example || "$mode" == example-command ]]; then
     printf 'Python API 예제 basic_sequence.py를 실행합니다. 실제 로봇에 연결하지 않습니다.\n'
     ros2 run fr3_moveit_demo basic_sequence.py --ros-args -p "duration:=$duration"
@@ -154,13 +212,16 @@ run_client_command() {
     -p "home:=$home" -p "gripper_width:=$gripper_width" -p wait_timeout:=30.0
 }
 
-if [[ "$mode" == moveit-command || "$mode" == example-command ]]; then
-  printf '실행 중인 FR3 Fake Hardware에 %s 클라이언트로 계획/실행을 요청합니다.\n' "$language_label"
+if [[ "$mode" == moveit-command || "$mode" == example-command || "$mode" == real-command || "$mode" == real-state ]]; then
+  if ! "$real"; then printf '실행 중인 FR3 Fake Hardware에 %s 클라이언트로 계획/실행을 요청합니다.\n' "$language_label"; fi
   run_client_command
   exit 0
 fi
 
 # 환경이 겹치면 서로 다른 상태가 같은 토픽에 섞이므로 실행 전에 확인한다.
+if "$rviz" && [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+  demo_die 'RViz를 표시할 GUI 세션이 없습니다. --no-rviz로 실행하세요.'
+fi
 if ! nodes="$(ros2 node list --no-daemon)"; then
   demo_die '현재 ROS 그래프를 조회하지 못했습니다. 위의 ROS 환경 오류를 확인하세요.'
 fi
@@ -175,7 +236,10 @@ if [[ "$mode" == libfranka-preview ]]; then
     "rate:=$rate" "rviz:=$rviz"
 fi
 
-if [[ "$mode" == server ]]; then
+if [[ "$mode" == real-server ]]; then
+  printf 'REAL FR3 %s: FCI 연결과 현재 자세 유지 제어를 시작합니다. 자동 이동 목표는 없습니다.\n' "$robot_ip"
+  printf '실제 FCI/네트워크/로봇 동작은 이 저장소에서 Not Tested입니다. 준비 절차: docs/real-robot.md\n'
+elif [[ "$mode" == server ]]; then
   printf 'FR3 서버: Fake Hardware/RViz만 시작합니다. 자동 이동과 실제 로봇 연결은 없습니다.\n'
 else
   printf 'FR3 MoveIt2 (%s): Fake Hardware를 시작합니다. 실제 로봇에 연결하지 않습니다.\n' "$language_label"
@@ -183,7 +247,12 @@ fi
 # 별도 프로세스 그룹으로 launch를 시작하고 종료 신호는 launch에만 보낸다.
 # launch가 자식 노드에 전달하므로 각 노드가 같은 SIGINT를 두 번 받지 않는다.
 # 비대화형 Bash의 background 작업이 상속하는 SIGINT 무시 상태도 해제한다.
-setsid env --default-signal=INT ros2 launch fr3_moveit_demo fake_moveit.launch.py "rviz:=$rviz" &
+if "$real"; then
+  setsid env --default-signal=INT ros2 launch fr3_moveit_demo real_moveit.launch.py \
+    "robot_ip:=$robot_ip" "with_gripper:=$with_gripper" "rviz:=$rviz" &
+else
+  setsid env --default-signal=INT ros2 launch fr3_moveit_demo fake_moveit.launch.py "rviz:=$rviz" &
+fi
 launch_pid=$!
 cleanup() {
   trap - EXIT INT TERM
@@ -194,7 +263,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-printf 'Fake Hardware 컨트롤러 준비를 기다립니다 (최대 90초).\n'
+printf '컨트롤러 준비를 기다립니다 (최대 90초).\n'
 deadline=$((SECONDS + 90))
 ready=false
 while ((SECONDS < deadline)); do
@@ -204,8 +273,9 @@ while ((SECONDS < deadline)); do
   controllers="$(timeout 6 ros2 service call /controller_manager/list_controllers \
     controller_manager_msgs/srv/ListControllers '{}' 2>/dev/null || true)"
   if grep -Fq "name='fr3_arm_controller', state='active'" <<< "$controllers" &&
-     grep -Fq "name='fr3_hand_controller', state='active'" <<< "$controllers" &&
-     grep -Fq "name='joint_state_broadcaster', state='active'" <<< "$controllers"; then
+     grep -Fq "name='joint_state_broadcaster', state='active'" <<< "$controllers" &&
+     { "$real" || grep -Fq "name='fr3_hand_controller', state='active'" <<< "$controllers"; } &&
+     { ! "$real" || grep -Fq "name='franka_robot_state_broadcaster', state='active'" <<< "$controllers"; }; then
     ready=true
     break
   fi
@@ -216,7 +286,10 @@ if "$rviz"; then
   printf 'RViz 모델을 읽고 초기 자세를 확인하도록 10초 기다립니다.\n'
   sleep 10
 fi
-if [[ "$mode" == server ]]; then
+if [[ "$mode" == real-server ]]; then
+  ros2 run fr3_moveit_demo read_state.py --ros-args -p backend:=real -p "robot_ip:=$robot_ip"
+  printf '실물 서버 준비 완료. 이동하려면 다른 터미널의 real-command에 목표를 명시하세요. Ctrl+C로 서버를 종료합니다.\n'
+elif [[ "$mode" == server ]]; then
   printf '서버 준비 완료. 자동 이동 없이 현재 자세를 유지합니다. Ctrl+C로 종료하세요.\n'
   printf '다른 터미널에서 ./scripts/run.sh moveit-command 또는 ./scripts/run.sh example-command를 실행하세요.\n'
 else

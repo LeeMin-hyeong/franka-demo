@@ -2,6 +2,7 @@
 # Ubuntu 22.04용 의존성 설치와 공식 소스 다운로드. 실제 로봇에 연결하지 않는다.
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
+source "$DEMO_ROOT/scripts/bootstrap_ros.sh"
 
 sources_only=false
 case "${1:-}" in
@@ -9,22 +10,33 @@ case "${1:-}" in
   --sources-only) sources_only=true ;;
   -h|--help)
     printf '사용법: ./scripts/setup.sh [--sources-only]\n'
-    printf '기본 실행은 apt와 rosdep으로 시스템 패키지를 설치합니다.\n'
+    printf '기본 실행은 ROS2 Humble부터 apt/rosdep 의존성과 공식 소스를 준비합니다.\n'
+    printf 'ROS가 없으면 Ubuntu 패키지 업데이트와 ROS apt 저장소 설치도 수행합니다.\n'
     printf '%s\n' '--sources-only는 이미 설치한 git/vcs를 사용해 공식 소스만 가져옵니다.'
     exit 0 ;;
   *) demo_die "알 수 없는 옵션: $1" ;;
 esac
 [[ $# -le 1 ]] || demo_die '옵션이 너무 많습니다.'
 demo_require_ubuntu
-demo_source_ros
+case "$(dpkg --print-architecture)" in
+  amd64|arm64) ;;
+  *) demo_die 'ROS2 Humble Ubuntu 패키지 대상인 amd64/arm64가 필요합니다.' ;;
+esac
+
+trap 'printf "설치 실패: 로그의 첫 오류를 확인한 뒤 ./scripts/setup.sh를 다시 실행하세요. 기존 소스는 보존됩니다.\n" >&2' ERR
 
 if ! "$sources_only"; then
   printf 'apt/rosdep이 시스템 패키지를 추가합니다. 기존 워크스페이스는 삭제하지 않습니다.\n'
-  sudo apt-get update
-  sudo apt-get install -y \
+  if ((EUID != 0)); then
+    command -v sudo >/dev/null || demo_die 'sudo 권한 또는 root 설치가 필요합니다.'
+    sudo -v
+  fi
+  demo_bootstrap_ros
+  demo_as_root apt-get update
+  demo_as_root apt-get install -y --no-remove \
     build-essential cmake git libeigen3-dev libpoco-dev libfmt-dev \
     libtinyxml2-dev libconsole-bridge-dev \
-    python3-colcon-common-extensions python3-vcstool python3-rosdep \
+    python3-colcon-common-extensions python3-vcstool python3-rosdep iputils-ping \
     ros-humble-moveit ros-humble-geometric-shapes ros-humble-random-numbers \
     ros-humble-rclcpp ros-humble-rclcpp-action ros-humble-rclpy ros-humble-moveit-msgs \
     ros-humble-ament-cmake-python \
@@ -33,6 +45,7 @@ if ! "$sources_only"; then
     ros-humble-rviz-common ros-humble-rviz-rendering ros-humble-rviz-default-plugins \
     ros-humble-robot-state-publisher ros-humble-joint-state-publisher
 fi
+demo_source_ros
 command -v git >/dev/null || demo_die 'git이 없습니다.'
 command -v vcs >/dev/null || demo_die 'vcs가 없습니다. python3-vcstool을 설치하세요.'
 mkdir -p "$DEMO_VENDOR"
@@ -49,7 +62,7 @@ vcs export "$DEMO_VENDOR" --exact > "$DEMO_WS/sources.lock.repos"
 
 if ! "$sources_only"; then
   if [[ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]]; then
-    sudo rosdep init
+    demo_as_root rosdep init
   fi
   rosdep update --rosdistro humble
   dependency_paths=("$DEMO_VENDOR/libfranka" "$DEMO_VENDOR/franka_description")
