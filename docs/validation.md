@@ -241,6 +241,47 @@ Joint 4를 +0.1 rad 이동한 최종 자세:
 - [ ] 실제 Robot 연결: **Not Tested**
 - [ ] 실물 FCI 제어와 실시간 1 kHz 성능: **Not Tested**
 
+## 신규 설치 진입점과 실물 구성 추가 검증
+
+`start.sh`에 ROS 최초 설치부터 가상 Python 예제까지 연결하는 진입점을 추가했다. `setup.sh`는 ROS가 없을 때 공식 ROS apt 설정, 시스템 패키지 갱신과 Humble 설치를 수행한다. 기존 ROS 설치를 사용하는 setup 재실행과 rosdep은 실제 WSL에서 다시 통과했다. 공식 소스 버전과 기존 워크스페이스를 보존했다.
+
+```bash
+bash tests/test_bootstrap.sh
+./scripts/build.sh
+./scripts/doctor.sh
+python3 tests/check_robot_guards.py
+python3 tests/check_cli_defaults.py
+python3 tests/check_real_configuration.py
+./scripts/smoke_test.sh
+```
+
+| 검사 | 결과와 범위 |
+|---|---|
+| 설치 분기 | 15/15 PASS. apt/dpkg/curl을 대체하여 신규 설치, 기존 ROS/저장소, 실패 중단과 임시 파일 정리 검사 |
+| 공식 ROS apt 패키지 | 실제 최신 release 1.3.0의 Jammy deb를 다운로드하고 Package/Version/Architecture 확인. 최초 설치는 수행하지 않음 |
+| 빌드/doctor | 11개 ROS 패키지, standalone와 API OBJECT 빌드 성공, CTest 5/5와 설치/import 검사 통과 |
+| Python guard | 모델/IP 거부, 실패 또는 정지 결과 미확인 후 이동 차단, raw 측정 중단, 중복 발행자, 실물 손 stop 서비스 처리 등 일곱 묶음 PASS. ROS 통신을 대체한 로직 검사 |
+| 실물 launch 설정 | 5/5 PASS. 손 없는/포함 모델, 정확한 실물 plugin과 IP, 공식 effort/1000 Hz YAML 보존, 실물 MoveIt 팔 컨트롤러만 연결. 소켓/ROS 노드 생성은 차단 |
+| 실물 CLI 경계 | IP/명시적 이동 누락과 잘못된 옵션 거부. 직접 Python ROS CLI에도 명시하지 않은 실물 기본 목표가 없음. 모든 real-*와 doctor --real의 WSL 거부 확인. launch --show-args는 연결 없이 성공 |
+| 가상 smoke | Python Home → Joint 4 +0.1 → 그리퍼 0.04 m → Home 성공. 별도 새 구독으로 9개 관절, ready, mimic, 한 발행자 검사 |
+
+smoke의 최종 Joint 4는 -2.356186 rad, 전체 그리퍼 폭은 0.04001853 m였다. 실제 FCI 드라이버를 시작하지 않았다. 가상 서버의 종료에서 아래 기존 MoveIt 소멸자 오류는 다시 발생했다. smoke PASS는 계획/실행/측정 상태 검사의 결과이며 종료 충돌이 해결됐다는 의미가 아니다.
+
+실물 실패/stop 서비스 처리와 직접 ROS CLI의 명시적 목표 검사를 보완한 뒤 변경한 데모 패키지를 다시 설치했다. doctor에서 실제 Move/Trigger 메시지 타입도 import했고 마지막 smoke도 통과했다. 이 실행의 Joint 4는 -2.356115 rad, 별도 측정 전체 폭은 0.04001722 m였다. 검증 프로세스는 모두 정리됐고 기존 사용자 ROS 프로세스는 유지했다. Ubuntu clone에서 직접 실행할 수 있도록 setup/build/run/start/doctor/smoke의 Git 실행 권한도 설정했다.
+
+실물 API는 raw 팔/손 측정의 새 timestamp, 최근 ROS 측정 시각과 monotonic 수신 시각, 소스별 단일 발행자를 요구한다. 집계기의 timestamp만 새로 갱신되는 경우를 입력으로 만들어 거부를 확인했고, stale 상태에서 Execution/GripperMove 액션을 전송하지 않는 것도 검사했다. 정지 미확인 차단은 같은 Robot 객체에 적용되며 물리적 정지를 검증하거나 비상 정지를 대체하지 않는다.
+
+실물 실행의 ABORTED/CONTROL_FAILED/TIMED_OUT과 손의 실패 결과도 정지 확인으로 취급하지 않는다. 실패 목표 정보를 남기고 stop 요청을 시도하며, 손은 이미 종료된 목표의 취소만으로 정지하지 못할 수 있어 공식 `/franka_gripper/stop` Trigger 서비스를 사용한다. 손의 목표 종료와 서비스 성공 응답을 함께 확인해야 차단을 해제하며 수락 미확인, 서비스 실패/timeout은 유지한다. 이 검사에서도 서비스와 결과는 대체했으며 실제 정지 성능은 검증하지 않았다.
+
+- [x] 최초 설치 흐름과 재실행 분기 테스트
+- [x] 기존 WSL ROS 환경의 실제 setup/build/doctor와 가상 팔/손 회귀 검증
+- [x] 실물 모델과 실행 구성의 연결 없는 검사
+- [ ] ROS가 없는 신규 Ubuntu에서 start.sh 전체 설치/실행: **Not Tested**
+- [ ] 추가한 GitHub Ubuntu 22.04 CI의 실제 실행: **Not Tested**
+- [ ] native PREEMPT_RT PC, 실제 FR3/Hand 접속/이동/정지와 FCI 성능: **Not Tested**
+
+실물 준비와 두 터미널의 실행 절차는 [real-robot.md](real-robot.md)에 있다. 로봇 IP와 시스템 버전이 주어지지 않아 실제 로봇 접속은 수행하지 않았다. 소프트웨어 설치에 커널 교체, 네트워크 재설정, 펌웨어 변경과 FCI 활성화를 숨겨 포함하지 않는다.
+
 ## 알려진 문제와 검증의 한계
 
 MoveIt/RViz는 이동 성공 후 종료 시 `TrajectoryExecutionManager`와 `rclcpp::CallbackGroup` 소멸자에서 segmentation fault(exit -11)를 발생시켰다. rclcpp/RViz 라이브러리를 같은 Humble 저장소 버전으로 갱신해도 재현됐다. 같은 종료 스택은 공식 [MoveIt 이슈 #1597](https://github.com/moveit/moveit2/issues/1597), 유사한 Franka Humble 종료 로그는 [franka_ros2 이슈 #154](https://github.com/frankarobotics/franka_ros2/issues/154)에 보고되어 있다. 이 환경의 정확한 원인과 해결은 확정하지 않았다. 동작 성공과 오류 없는 종료를 동일하게 취급하지 않는다.

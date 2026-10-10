@@ -1,0 +1,61 @@
+name: Ubuntu 22.04 virtual FR3
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - scripts/**
+      - tests/**
+      - ros2_ws/src/**
+      - standalone/**
+      - .github/workflows/ubuntu22.yml
+  pull_request:
+    paths:
+      - scripts/**
+      - tests/**
+      - ros2_ws/src/**
+      - standalone/**
+      - .github/workflows/ubuntu22.yml
+
+permissions:
+  contents: read
+
+jobs:
+  install-build-preview:
+    # ROS 없는 새 GitHub VM이다. 개발 도구는 기본 설치되어 있어 빈 Ubuntu와 동일하지 않다.
+    # ubuntu-22.04 runner 지원 종료(2027-04-17) 이후에는 Ubuntu 22.04 전용 runner가 필요하다.
+    # 공식 일정: https://github.com/actions/runner-images/issues/14254
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    env:
+      FR3_BUILD_JOBS: "2"
+      ROS_DOMAIN_ID: "83"
+      ROS_LOCALHOST_ONLY: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm ROS is absent and test bootstrap branches
+        run: |
+          test ! -f /opt/ros/humble/setup.bash
+          bash tests/test_bootstrap.sh
+
+      - name: Install ROS Humble and official Franka dependencies
+        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH bash scripts/setup.sh
+
+      - name: Build Python API, C++ learning code and dependency packages
+        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH bash scripts/build.sh
+
+      - name: Check installed environment
+        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH bash scripts/doctor.sh
+
+      - name: Check hardware configuration and command guards without FCI
+        run: |
+          export PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+          source /opt/ros/humble/setup.bash
+          source ros2_ws/install/setup.bash
+          python3 tests/check_robot_guards.py
+          python3 tests/check_cli_defaults.py
+          python3 tests/check_real_configuration.py
+
+      - name: Exercise virtual arm and gripper without RViz or FCI
+        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH timeout --signal=INT --kill-after=30s 240s bash scripts/smoke_test.sh

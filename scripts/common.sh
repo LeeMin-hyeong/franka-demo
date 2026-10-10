@@ -17,6 +17,38 @@ demo_die() {
   exit 1
 }
 
+demo_as_root() {
+  # 일반 사용자로 저장소를 관리하고 시스템 설치 명령에만 sudo를 적용한다.
+  if ((EUID == 0)); then "$@"; else sudo "$@"; fi
+}
+
+demo_has_ros() {
+  [[ -f /opt/ros/humble/setup.bash ]]
+}
+
+demo_validate_robot_ip() {
+  [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
+    demo_die '--robot-ip에 Control의 FCI IPv4 주소를 지정하세요.'
+  awk -F. '{ for (i=1; i<=4; i++) if ($i<0 || $i>255 || (length($i)>1 && substr($i,1,1)=="0")) exit 1;
+    if ($1==0 || $1==127 || $1>=224) exit 1 }' <<< "$1" ||
+    demo_die '올바른 로봇 IPv4 주소가 아닙니다.'
+}
+
+demo_require_real_pc() {
+  demo_require_ubuntu
+  if grep -qi microsoft /proc/sys/kernel/osrelease; then
+    demo_die '실물 FCI 서버는 native Ubuntu 22.04 PC에서 실행하세요. WSL2는 가상 데모용입니다.'
+  fi
+  if ! { [[ -r /sys/kernel/realtime ]] && [[ "$(cat /sys/kernel/realtime)" == 1 ]]; } &&
+     ! grep -q PREEMPT_RT /proc/version; then
+    demo_die 'PREEMPT_RT 커널이 필요합니다. docs/real-robot.md의 준비 절차를 확인하세요.'
+  fi
+  [[ "$(ulimit -r)" == unlimited || "$(ulimit -r)" -ge 99 ]] ||
+    demo_die '현재 셸의 실시간 priority 한도가 부족합니다. realtime 권한 설정 후 다시 로그인하세요.'
+  [[ "$(ulimit -l)" == unlimited || "$(ulimit -l)" -ge 102400 ]] ||
+    demo_die '현재 셸의 memlock 한도가 부족합니다. docs/real-robot.md를 확인하세요.'
+}
+
 demo_require_ubuntu() {
   [[ -f /etc/os-release ]] || demo_die 'Ubuntu 22.04 터미널에서 실행하세요.'
   # Ubuntu의 배포판 정보만 읽으며 시스템 파일을 수정하지 않는다.
@@ -26,8 +58,7 @@ demo_require_ubuntu() {
 }
 
 demo_source_ros() {
-  [[ -f /opt/ros/humble/setup.bash ]] ||
-    demo_die 'ROS2 Humble을 먼저 설치하세요. README 4절의 설치 명령을 참고하세요.'
+  demo_has_ros || demo_die 'ROS2 Humble이 없습니다. ./scripts/setup.sh가 ROS부터 설치합니다.'
   # ROS의 환경 스크립트는 정의되지 않은 변수를 읽을 수 있으므로 source 동안만 해제한다.
   set +u
   source /opt/ros/humble/setup.bash

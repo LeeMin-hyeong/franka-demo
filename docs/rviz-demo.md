@@ -1,17 +1,24 @@
 # Python 기본 FR3 RViz 데모와 C++ 비교
 
-기본 데모는 공식 FR3의 Joint 4를 ready 자세에서 +0.1 rad 이동한다. Python과 C++ 모두 기존 MoveIt 플래너와 ros2_control GenericSystem Fake Hardware를 사용한다. Python 예제는 공통 Robot API의 짧은 함수 호출로 동작을 구성한다. 실제 로봇 주소를 입력하거나 FCI를 호출하는 경로는 없으며 Isaac Sim은 구현하지 않았다.
+이 문서는 가상 RViz 데모의 실행과 코드 확장을 설명한다. 기본 데모는 공식 FR3의 Joint 4를 ready 자세에서 +0.1 rad 이동한다. Python과 C++ 모두 기존 MoveIt 플래너와 ros2_control GenericSystem을 사용한다. Python 예제는 공통 Robot API의 짧은 함수 호출로 동작을 구성한다. 아래 가상 명령은 FCI를 호출하지 않는다. 실물은 별도의 [실물 연결 가이드](real-robot.md)와 real-* 명령을 사용하며 Not Tested다. Isaac Sim은 구현하지 않았다.
 
 ## 준비와 실행
 
-Ubuntu 22.04 Bash에서 저장소 루트로 이동한다. 최초 준비는 [README 설치 가이드](../README.md#4-설치-가이드)를 따른다.
+Ubuntu 22.04 Bash에서 저장소 루트로 이동한다. ROS도 없는 환경에서의 Git 설치/복제는 [README 설치 가이드](../README.md#4-설치-가이드)를 따른다. 설치부터 가상 작업 실행까지 한 번에 수행하려면 다음 명령을 쓴다.
+
+```bash
+./scripts/start.sh
+```
+
+setup → build → doctor → Python example을 수행하고 RViz를 유지한다. Home → Joint 4 +0.1 rad → 그리퍼 40 mm → Home 순서다. start는 시스템 패키지를 설치하고 최초 ROS 환경에서는 시스템 업데이트도 수행한다. 이미 설치/빌드가 끝났다면 run으로 실행하면 된다. 개별 설치/빌드는 다음과 같다.
 
 ```bash
 ./scripts/setup.sh
 ./scripts/build.sh
+./scripts/doctor.sh
 ```
 
-처음에는 다음 한 명령으로 실행한다. Python 클라이언트가 기본값이다.
+준비 후 한 관절만 확인하려면 다음 명령으로 실행한다. Python 클라이언트가 기본값이다.
 
 ```bash
 ./scripts/run.sh
@@ -96,6 +103,8 @@ ros2 run fr3_moveit_demo basic_sequence.py --ros-args -p duration:=3.0
 ```
 
 API 입력/반환값과 확장 방법은 [Python API 가이드](python-api.md)를 참고한다.
+
+이 문서의 Robot()은 기본 fake backend다. 실물 backend를 선택하면 기존 가상 모델을 그대로 제어하지 않고 공식 실물 서버의 플러그인과 IP가 일치하는지 검사한다. C++ 학습 클라이언트는 계속 가상 전용으로 유지한다.
 
 ## 실행 중 추가 명령
 
@@ -202,6 +211,27 @@ ros2 topic info /joint_states --verbose --no-daemon
 서버 실행 터미널의 Ctrl+C로 종료한다. Python 클라이언트만 실행하는 터미널 B에서 이동 중 Ctrl+C를 누르면 본인의 가상 궤적에 stop 이벤트를 요청하고 PREEMPTED 정지 결과를 확인한 뒤 종료한다. 목표 전송 직후 끊긴 경우에도 목표 수락 응답을 회수해 취소를 요청하며 정지/취소 응답을 확인하지 못하면 경고를 출력한다.
 
 기존 Humble MoveIt/RViz 종료 소멸자 오류는 [검증 기록](validation.md)에 기록되어 있으며, 이동 성공과 오류 없는 종료를 구분한다.
+
+## 실물 RViz와의 관계
+
+native Ubuntu 제어 PC의 RT/권한, 시스템 버전, Control LAN과 Desk FCI 준비를 끝낸 뒤에만 실물 서버를 시작한다. 가상 데모를 먼저 종료한다. IP는 실제 Control 주소로 바꾼다.
+
+터미널 A:
+
+```bash
+./scripts/doctor.sh --real
+./scripts/run.sh real-server --robot-ip 172.16.0.2
+```
+
+터미널 B:
+
+```bash
+./scripts/run.sh real-state --robot-ip 172.16.0.2
+```
+
+실물 RViz는 측정한 현재 자세를 표시한다. ready로 초기화하거나 자동 이동하지 않으며 공식 arm controller의 현재 자세 유지 제어는 시작된다. 손이 실제 장착되었을 때만 A의 서버에 --with-gripper를 사용한다. 팔만 연결하면 7개 상태를, 손을 포함하면 9개 상태를 표시한다. real-state는 추가 이동을 요청하지 않는다.
+
+실제로 움직일 때는 별도 real-command로 한 목표를 명시한다. 이 경로의 연결/동작/정지 성능과 실물 RViz 표시는 Not Tested다. 본 문서의 가상 검증 화면이 실물 검증 결과는 아니다. 단계별 준비와 명령은 [실물 가이드](real-robot.md)를 따른다.
 
 ## C++ Offline Preview와의 구분
 

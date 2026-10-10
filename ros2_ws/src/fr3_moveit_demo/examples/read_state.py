@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """움직임을 요청하지 않고 공식 FR3의 현재 관절 상태를 읽는 Python 입문 예제.
 
-입력은 실행 중인 Fake Hardware의 /joint_states, 출력은 이름별 위치다.
+입력은 실행 중인 서버의 관절 상태, 출력은 이름별 위치다.
 팔은 rad, 손가락은 m이며 두 손가락 위치의 합이 전체 벌림 폭이다.
 run.sh server로 스택을 시작하고 ros2 run fr3_moveit_demo read_state.py로 실행한다.
-공통 Robot API가 실제 메시지 수신과 모델을 확인하며 FCI는 사용하지 않는다.
+기본은 fake이며, real-state는 backend와 IP를 명시해 실물 측정 상태만 확인한다.
+공통 Robot API가 메시지 수신과 모델을 확인하며 이동 목표는 보내지 않는다.
 """
 
 import sys
@@ -20,9 +21,11 @@ def main(args=None):
             for name, value in positions.items():
                 unit = 'm' if 'finger' in name else 'rad'
                 print(f'{name} = {value:.6f} {unit}')
-            width = positions['fr3_finger_joint1'] + positions['fr3_finger_joint2']
-            print(f'gripper_width = {width:.6f} m')
-            print('STATE READ COMPLETE. No motion requested. No FCI connection.')
+            if 'fr3_finger_joint1' in positions:
+                width = positions['fr3_finger_joint1'] + positions['fr3_finger_joint2']
+                print(f'gripper_width = {width:.6f} m')
+            connection = 'Real robot server' if robot.backend == 'real' else 'No FCI connection'
+            print(f'STATE READ COMPLETE. No motion requested. {connection}.')
         return 0
     except KeyboardInterrupt:
         return 130
