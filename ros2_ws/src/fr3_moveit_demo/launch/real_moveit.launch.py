@@ -27,7 +27,7 @@ def check_real_pc():
     """실물 FCI 서버의 native Linux/RT/권한을 검사한다. 네트워크에 연결하지 않는다."""
     with open('/proc/sys/kernel/osrelease', encoding='utf-8') as stream:
         if 'microsoft' in stream.read().lower():
-            raise RuntimeError('Real FCI requires native Ubuntu with PREEMPT_RT, not WSL2.')
+            raise RuntimeError('Real FCI requires a native Ubuntu PREEMPT_RT control PC.')
     rt = False
     if os.path.isfile('/sys/kernel/realtime'):
         with open('/sys/kernel/realtime', encoding='utf-8') as stream:

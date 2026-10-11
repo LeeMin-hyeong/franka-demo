@@ -37,7 +37,7 @@ demo_validate_robot_ip() {
 demo_require_real_pc() {
   demo_require_ubuntu
   if grep -qi microsoft /proc/sys/kernel/osrelease; then
-    demo_die '실물 FCI 서버는 native Ubuntu 22.04 PC에서 실행하세요. WSL2는 가상 데모용입니다.'
+    demo_die '실물 FCI 서버는 native Ubuntu 22.04 PC의 PREEMPT_RT 환경에서 실행하세요.'
   fi
   if ! { [[ -r /sys/kernel/realtime ]] && [[ "$(cat /sys/kernel/realtime)" == 1 ]]; } &&
      ! grep -q PREEMPT_RT /proc/version; then
@@ -59,6 +59,10 @@ demo_require_ubuntu() {
 
 demo_source_ros() {
   demo_has_ros || demo_die 'ROS2 Humble이 없습니다. ./scripts/setup.sh가 ROS부터 설치합니다.'
+  # Humble apt 패키지는 Ubuntu의 Python 3.10용이다. Conda/pip 사용자 패키지 혼입을 피한다.
+  # 이 스크립트의 자식 프로세스에만 적용하며 사용자의 셸 설정은 바꾸지 않는다.
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+  export PYTHONNOUSERSITE=1
   # ROS의 환경 스크립트는 정의되지 않은 변수를 읽을 수 있으므로 source 동안만 해제한다.
   set +u
   source /opt/ros/humble/setup.bash

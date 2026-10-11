@@ -1,6 +1,18 @@
 # FR3 Control Demo 아키텍처
 
-코드가 어떤 데이터를 만들고 다음 단계가 무엇을 담당하는지 설명한다. 최초 진입점은 `./scripts/start.sh`이며 설치/빌드/점검 후 Python 가상 작업을 실행한다. 설치 후 기본 진입점은 `./scripts/run.sh`다. 실물은 native Ubuntu PC에서 별도 `real-*` 명령을 명시한다. 설치/실행은 [README](../README.md), 함수 호출은 [Python API](python-api.md), 실물 조건은 [실물 가이드](real-robot.md), 실제 수행 결과는 [검증 기록](validation.md)을 사용한다.
+코드가 어떤 데이터를 만들고 다음 단계가 무엇을 담당하는지 설명한다. [공식 환경에 작업 노드를 추가하는 구성안](official-addon.md)은 향후 설계로만 남겨둔다. 아래 제안과 현재 구현을 구분한다. 함수 호출은 [Python API](python-api.md), 실물 조건은 [실물 가이드](real-robot.md), 수행 결과는 [검증 기록](validation.md)을 사용한다.
+
+```mermaid
+flowchart LR
+  A[공식 Humble 설치 결과] --> B[향후: 작업 패키지만 추가]
+  A --> C[공식 MoveIt launch]
+  B --> D[Python 작업 / 보정 / 클릭 집기]
+  D --> C
+  E[D435i 공식 ROS 드라이버] --> D
+  C --> F[Fake Hardware 또는 실제 FR3]
+```
+
+아래는 현재 자체 설치 구조다. `start.sh`가 ROS/공식 소스/교육 예제를 준비하고 자체 가상 서버를 실행한다. 설치 후 기본 진입점은 `run.sh`다.
 
 ```mermaid
 flowchart LR
@@ -30,7 +42,7 @@ setup은 apt/rosdep과 공식 소스 다운로드를 담당한다. 소스가 이
 | `./scripts/run.sh real-state --robot-ip IP` | 기존 실물 서버 사용 | 새 측정 상태 조회, 추가 이동 없음 |
 | `./scripts/run.sh real-command --robot-ip IP --joint 4 --delta 0.01` | 기존 실물 서버 사용 | 명시한 단일 이동 실행 |
 
-가상 server는 --no-rviz만 선택할 수 있다. example은 Python 전용이고 --duration을 각 단계에 전달한다. 가상 MoveIt은 기본 Python이며 --language cpp로 C++을 명시한다. real-server는 IP가 필수이며 선택적으로 --with-gripper/--no-rviz를 사용한다. real-command는 Python 전용이고 joint+delta, home, gripper-width 중 하나를 명시해야 한다. real 모드는 WSL을 거부하고 native Ubuntu RT 커널/권한을 확인한다.
+가상 server는 --no-rviz만 선택할 수 있다. example은 Python 전용이고 --duration을 각 단계에 전달한다. 가상 MoveIt은 기본 Python이며 --language cpp로 C++을 명시한다. real-server는 IP가 필수이며 선택적으로 --with-gripper/--no-rviz를 사용한다. real-command는 Python 전용이고 joint+delta, home, gripper-width 중 하나를 명시해야 한다. real 모드는 native Ubuntu RT 커널/권한을 확인한다.
 
 ```mermaid
 flowchart LR

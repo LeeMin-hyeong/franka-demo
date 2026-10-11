@@ -1,13 +1,13 @@
 """공식 FR3 팔과 Franka Hand의 공통 Python 제어 API.
 
 라이브러리: rclpy, moveit_msgs, sensor_msgs와 Python 표준 XML 파서.
-입력: 메서드의 관절 번호, 상대 이동량(rad), 전체 그리퍼 폭(m), 최소 이동 시간(s).
+입력: 관절 번호, 상대 이동량(rad), 그리퍼 폭(m), 시간(s)과 명시적 집기 힘(N).
 출력: START/GOAL/FINAL 로그와 검증한 실제 관절 위치 dict, 실패 시 예외.
 흐름: 서버 모델 확인 -> 최신 JointState -> 관절 제한 검사 -> 계획 -> 실행 -> 검증.
 기본 fake MoveIt 서버와 명시적으로 선택한 real 서버를 CLI와 예제에서 함께 사용한다.
 Humble에서는 MoveGroupInterface의 Python 래퍼 대신 공식 MoveGroup 액션과
 ExecuteTrajectory 액션을 사용한다. 실물 팔의 FCI 연결은 공식 ros2_control 드라이버가
-담당한다. 실물 손은 공식 Move 액션으로 자유 공간 폭 이동만 요청하며 grasp는 호출하지 않는다.
+담당한다. 자유 공간 폭 이동은 Move, 명시적인 물체 집기는 Grasp 액션을 사용한다.
 모델은 첫 연결에서 캐시하고 동작마다 새 상태를 받는다. Robot의 독립 ROS context와
 executor는 with 블록 동안 유지되며, close()는 다른 노드의 context를 종료하지 않는다.
 """
@@ -188,6 +188,7 @@ class Robot(Node):
         self._owned_executor = None
         self._action_clients = []
         self.gripper_move_client = None
+        self.gripper_grasp_client = None
         self.gripper_stop_client = None
         self.backend = backend
         self.latest_state = None
@@ -542,6 +543,52 @@ class Robot(Node):
             self.stop()
             raise
 
+    def grasp(self, width, force, speed=0.01, epsilon=0.003):
+        """물체 폭[m], 힘[N], 속도[m/s], 폭 허용 오차[m]로 집고 측정 상태를 반환한다.
+
+        real은 공식 Franka Grasp의 성공 응답과 측정 폭을 모두 요구한다. fake는
+        손가락 위치만 바꾸며 접촉/힘/미끄러짐을 재현하지 않는다. 실패 시 들어 올리지
+        않도록 예외를 전달한다. 자동 homing이나 재시도, 손 열기는 수행하지 않는다.
+        """
+        self._ensure_motion_allowed()
+        for value, label, maximum in ((width, 'width', 0.08), (force, 'force', 70.0),
+                                      (speed, 'speed', 0.05), (epsilon, 'epsilon', 0.005)):
+            self._positive_seconds(value, label, maximum)
+        if epsilon >= width / 2:
+            raise ValueError('Grasp epsilon must be smaller than half the object width.')
+        if force < 5:
+            raise ValueError('Explicit grasp force must satisfy 5 <= force <= 70 N.')
+        self.connect()
+        if not self.finger_bounds:
+            raise ValueError('Grasp requires the official Franka Hand.')
+        check_bounds([width / 2] * 2, self.finger_bounds, 'Grasp width', FINGER_NAMES)
+        if self.backend == 'fake':
+            return self.set_gripper(width, duration=max(1.0, 0.08 / speed))
+        from franka_msgs.action import Grasp
+        from franka_msgs.msg import GraspEpsilon
+        if self.gripper_grasp_client is None:
+            self.gripper_grasp_client = ActionClient(self, Grasp, '/franka_gripper/grasp')
+            self._action_clients.append(self.gripper_grasp_client)
+        if not self.gripper_grasp_client.wait_for_server(timeout_sec=self.timeout):
+            raise TimeoutError('Official Franka Grasp action unavailable.')
+        initial = self._fresh_state()
+        if initial[FINGER_NAMES[0]] + initial[FINGER_NAMES[1]] <= width:
+            raise ValueError('Open the fingers wider than the object before grasping.')
+        try:
+            self._action_result(self.gripper_grasp_client,
+                                Grasp.Goal(width=float(width), speed=float(speed), force=float(force),
+                                           epsilon=GraspEpsilon(inner=float(epsilon), outer=float(epsilon))),
+                                self.timeout + 0.08 / speed, 'GripperGrasp')
+            final = self._fresh_state()
+            measured = final[FINGER_NAMES[0]] + final[FINGER_NAMES[1]]
+            if not width - epsilon < measured < width + epsilon:
+                raise RuntimeError('Grasp action succeeded but measured width is outside epsilon.')
+            self.get_logger().info(f'Grasp SUCCESS: measured width={measured:.6f} m. Slip is not monitored.')
+            return final
+        except BaseException:
+            self.stop()
+            raise
+
     def _print_positions(self, label, positions, names, gripper_mode=False):
         """선택한 목표/실제 위치를 rad 또는 m로 출력한다. 손은 실제 양쪽 값과 폭도 표시한다."""
         unit = 'm' if gripper_mode else 'rad'
@@ -640,11 +687,11 @@ class Robot(Node):
     def _action_result(self, client, goal, timeout, label):
         """목표 수락/action 상태/서버 결과를 구분한다. timeout 초 안의 성공 결과만 반환한다.
 
-        팔과 가상 손은 MoveIt error_code, 실물 손 Move는 success/error를 사용한다.
+        팔과 가상 손은 MoveIt error_code, 실물 손 Move/Grasp는 success/error를 사용한다.
         액션 타입마다 공식 결과 필드가 다르므로 성공 기준도 따로 확인한다.
         실물 실행 요청 직전 raw 상태를 재검사해 계획 중 드라이버 측정이 중단되면 거부한다.
         """
-        if label in ('Execution', 'GripperMove'):
+        if label in ('Execution', 'GripperMove', 'GripperGrasp'):
             self._check_real_raw_state()
         self.goal_kind = label
         self.pending_goal = client.send_goal_async(goal)
@@ -656,13 +703,13 @@ class Robot(Node):
         self.active_goal = handle
         self.active_result = handle.get_result_async()
         response = self._wait_future(self.active_result, timeout, f'{label} result')
-        if label == 'GripperMove':
+        if label in ('GripperMove', 'GripperGrasp'):
             success = response.status == GoalStatus.STATUS_SUCCEEDED and response.result.success
-            failure = f'GripperMove failed: action status={response.status}, error={response.result.error}'
+            failure = f'{label} failed: action status={response.status}, error={response.result.error}'
         else:
             success = response.status == GoalStatus.STATUS_SUCCEEDED and response.result.error_code.val == MoveItErrorCodes.SUCCESS
             failure = f'{label} failed: action status={response.status}, MoveIt error={response.result.error_code.val}'
-        if not success and self.backend == 'real' and label in ('Execution', 'GripperMove'):
+        if not success and self.backend == 'real' and label in ('Execution', 'GripperMove', 'GripperGrasp'):
             # ABORTED는 ROS 목표 종료를 뜻하지만 실물 정지 확인은 아니다. 예를 들어
             # 그리퍼 서버는 네트워크 예외에도 ABORTED를 반환하며 stop을 호출하지 않는다.
             # 목표 정보를 남겨 호출자의 예외 처리와 close에서 별도 정지를 요청하게 한다.
@@ -678,7 +725,7 @@ class Robot(Node):
     def _request_real_gripper_stop(self):
         """공식 그리퍼 stop 서비스 응답을 반환한다. 성공 True, 미확인/실패 False다.
 
-        이미 ABORTED된 Move 목표는 CancelGoal로 정지할 수 없으므로 별도 Trigger를 쓴다.
+        이미 ABORTED된 Move/Grasp 목표는 CancelGoal로 정지할 수 없으므로 별도 Trigger를 쓴다.
         서비스 대기와 응답은 각각 최대 3초다. 성공은 드라이버의 stop 명령 응답이며
         물리적 정지 성능의 검증이 아니다. 실제 필요한 시점에만 클라이언트를 만든다.
         """
@@ -704,7 +751,7 @@ class Robot(Node):
         """본인의 진행 중 목표에 정지/취소를 요청한다. 응답별 최대 3초 대기하며 반환값은 없다.
 
         팔/가상 손 실행에만 공식 MoveGroupInterface.stop()과 같은 stop 이벤트를 보낸다.
-        실물 손 Move는 자체 목표 취소와 별도 stop 서비스로 공식 드라이버에 정지를 요청한다.
+        실물 손 Move/Grasp는 목표 취소와 별도 stop 서비스로 드라이버에 정지를 요청한다.
         Planning 취소와 실물 손에는 전역 이벤트를 보내지 않는다. 미확인/거부는 로그로 표시한다.
         이 소프트웨어 요청은 실물 로봇의 비상정지를 대체하지 않는다.
         real의 수락/최종 정지 결과가 불확실하면 같은 객체의 다음 이동을 차단한다.
@@ -713,7 +760,7 @@ class Robot(Node):
         """
         if self._closed or not self._node_ready or not self._owned_context.ok():
             return
-        real_motion = self.backend == 'real' and self.goal_kind in ('Execution', 'GripperMove')
+        real_motion = self.backend == 'real' and self.goal_kind in ('Execution', 'GripperMove', 'GripperGrasp')
         if real_motion and (self.pending_goal is not None or self.active_goal is not None):
             # CancelGoal 수락은 실제 종료 확인이 아니다. 최종 action 결과를 받기 전까지
             # 보수적으로 다음 실물 이동을 막고, 상태 조회와 정지 재시도만 허용한다.
@@ -740,13 +787,13 @@ class Robot(Node):
         if stop_needed:
             self.stop_publisher.publish(String(data='stop'))
             self.get_logger().info(f'{self.backend.capitalize()} trajectory stop requested (MoveGroupInterface.stop event).')
-        gripper_stop_required = real_motion and self.goal_kind == 'GripperMove' and (
+        gripper_stop_required = real_motion and self.goal_kind in ('GripperMove', 'GripperGrasp') and (
             self.pending_goal is not None or self.active_goal is not None)
         if self.active_goal is not None:
             try:
                 response = self._wait_future(self.active_goal.cancel_goal_async(), 3.0, 'Cancel goal')
                 if response.return_code == CancelGoal.Response.ERROR_NONE and response.goals_canceling:
-                    server = 'Franka gripper' if self.goal_kind == 'GripperMove' else 'MoveIt'
+                    server = 'Franka gripper' if self.goal_kind in ('GripperMove', 'GripperGrasp') else 'MoveIt'
                     self.get_logger().info(f'Goal cancellation acknowledged by {server}.')
                 elif response.return_code == CancelGoal.Response.ERROR_GOAL_TERMINATED:
                     self.get_logger().info('Goal already finished before cancellation.')
@@ -773,19 +820,19 @@ class Robot(Node):
                 except Exception as error:
                     self.get_logger().warning(f'{self.backend.capitalize()} trajectory stop was not confirmed: {error}')
                     preserve_goal = real_motion
-            elif self.goal_kind == 'GripperMove':
+            elif self.goal_kind in ('GripperMove', 'GripperGrasp'):
                 try:
                     future = self.active_result or self.active_goal.get_result_async()
                     response = self._wait_future(future, 3.0, 'GripperMove stop result')
                     gripper_result_known = response.status in (
                         GoalStatus.STATUS_SUCCEEDED, GoalStatus.STATUS_CANCELED, GoalStatus.STATUS_ABORTED)
                     if response.status == GoalStatus.STATUS_CANCELED:
-                        self.get_logger().info('Real gripper Move cancellation confirmed by the official driver.')
+                        self.get_logger().info('Real gripper action cancellation confirmed by the official driver.')
                     elif response.status == GoalStatus.STATUS_SUCCEEDED and response.result.success:
-                        self.get_logger().info('Real gripper Move finished before cancellation.')
+                        self.get_logger().info('Real gripper action finished before cancellation.')
                     else:
                         self.get_logger().warning(
-                            f'GripperMove ended: status={response.status}, error={response.result.error}')
+                            f'Gripper action ended: status={response.status}, error={response.result.error}')
                         preserve_goal = real_motion
                 except Exception as error:
                     self.get_logger().warning(f'Real gripper stop was not confirmed: {error}')

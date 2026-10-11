@@ -1,6 +1,6 @@
 # Python으로 시작하고 확장하기
 
-처음 설치부터 실행하려면 `./scripts/start.sh`, 설치 후 기본 관절 데모는 `./scripts/run.sh`다. Python 클라이언트가 공식 FR3 모델을 사용해 MoveIt에 계획과 실행을 요청하고, Fake Hardware의 결과를 RViz로 확인한다. 기본값은 실제 로봇에 연결하지 않는다. 설치는 [README](../README.md#4-설치-가이드), 실물 준비는 [실물 연결 가이드](real-robot.md)를 따른다.
+처음 설치부터 실행하려면 `./scripts/start.sh`, 설치 후 기본 관절 데모는 `./scripts/run.sh`다. Python 클라이언트가 공식 FR3 모델을 사용해 MoveIt에 계획과 실행을 요청하고, Fake Hardware의 결과를 RViz로 확인한다. 기본값은 실제 로봇에 연결하지 않는다. 설치는 [README](../README.md#4-설치-가이드), 실물 준비는 [실물 연결 가이드](real-robot.md)를 따른다. [공식 환경에 추가하는 구성안](official-addon.md)은 향후 설계로만 남겨둔다.
 
 ## 가장 짧은 작업 코드
 
@@ -8,7 +8,7 @@
 
 ```bash
 source /opt/ros/humble/setup.bash
-source ros2_ws/install/setup.bash
+source ~/franka-demo/ros2_ws/install/setup.bash
 python3 my_task.py
 ```
 
@@ -36,6 +36,7 @@ with Robot() as robot:
 | `home(duration=3.0)` | 각 이동의 최소 시간 [s] | 공식 SRDF ready로 팔을 이동하고 최종 상태 dict 반환 |
 | `move_joint(joint=4, delta=0.1, duration=3.0)` | 관절 번호 1~7, 현재값 대비 이동량 [rad], 최소 시간 [s] | 해당 관절 목표를 계획/실행하고 최종 상태 dict 반환 |
 | `set_gripper(width=0.04, duration=3.0)` | 전체 폭 [m] 0~0.08. fake에서는 최소 시간 [s], real에서는 속도 계산 기준 [s] | fake는 MoveIt 계획/실행, real은 공식 Move 액션. 최종 측정 상태 dict 반환 |
+| `grasp(width, force, speed=0.01, epsilon=0.003)` | 물체 폭/허용 오차 [m], 힘 [N], 속도 [m/s]. 0<폭≤0.08, 힘 5~70, 0<speed≤0.05, 0<epsilon<폭/2 및 ≤0.005 | real은 공식 Grasp의 성공/새 측정 폭 검사. fake는 폭 이동. 최종 상태 dict 반환. 물체 유지/미끄러짐 검증은 아님 |
 | `get_joint_positions()` | 없음 | 새 상태의 `{관절 이름: 위치}`. 팔은 rad, 손가락은 m |
 | `stop()` | 없음 | 본인의 진행 중 목표에 정지/취소를 요청하고 응답 확인. real에서 결과가 불확실하면 같은 객체의 후속 이동 차단 |
 | `close()` | 없음 | 본인의 목표와 executor/Node/Context 정리. 반복 호출 가능 |
@@ -90,6 +91,46 @@ ROS 인자 `-p backend:=real -p robot_ip:=...`도 명시적인 real 선택이다
 
 예제에는 작업 의도만 적는다. 현재 상태 확인, 모델 제한, 계획/실행 분리, 최종 위치 검사, 취소 처리는 공통 API에서 유지한다. 새 함수는 기존의 공식 MoveIt 메시지/액션을 재사용하고 입력의 단위와 반환값을 주석으로 설명한다.
 
+## 새 작업을 만드는 두 경로
+
+**프로젝트 안에서 시작:** 터미널 A는 `./scripts/run.sh server`로 가상 서버를 유지한다. 터미널 B에서 상태 조회 예제를 복사한다. 처음 실행은 이동 목표를 보내지 않는다.
+
+```bash
+cd ~/franka-demo
+mkdir -p tasks
+cp -n ros2_ws/src/fr3_moveit_demo/examples/read_state.py tasks/my_task.py
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+export PYTHONNOUSERSITE=1
+source /opt/ros/humble/setup.bash
+source ~/franka-demo/ros2_ws/install/setup.bash
+python3 tasks/my_task.py
+```
+
+`STATE READ COMPLETE`와 관절값을 확인한다. `tasks/my_task.py`의 `with Robot(...)` 안에 필요한 호출을 순서대로 추가한다. 예를 들어 가상에서 `positions = robot.get_joint_positions()` 앞에 `robot.move_joint(joint=4, delta=0.1, duration=3.0)`를 넣고 다시 실행한다. 작업 파일만 수정하면 재빌드가 필요 없고 공통 패키지를 수정하면 `./scripts/build.sh`가 필요하다. 실물로 옮길 때는 해당 작업에서 `Robot(args=[], backend='real', robot_ip='실제 Control IP')`를 직접 지정하고 이동량과 주변 환경을 다시 확인한다.
+
+**새 ROS2 워크스페이스로 분리:** 먼저 프로젝트 빌드를 완료한다. 비어 있는 `~/fr3_task_ws`에서 아래처럼 상태 조회 패키지를 만든다. 이미 같은 이름의 패키지가 있다면 새 이름/폴더를 사용한다.
+
+```bash
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+export PYTHONNOUSERSITE=1
+source /opt/ros/humble/setup.bash
+source ~/franka-demo/ros2_ws/install/setup.bash
+mkdir -p ~/fr3_task_ws/src
+cd ~/fr3_task_ws/src
+ros2 pkg create fr3_tasks --build-type ament_python \
+  --node-name read_state --dependencies fr3_moveit_demo
+cp ~/franka-demo/ros2_ws/src/fr3_moveit_demo/examples/read_state.py \
+  fr3_tasks/fr3_tasks/read_state.py
+cd ~/fr3_task_ws
+colcon build --symlink-install --packages-select fr3_tasks
+source install/setup.bash
+ros2 run fr3_tasks read_state
+```
+
+마지막 명령은 A의 가상 서버가 실행 중일 때 새 상태를 읽는다. `--node-name`이 Python 실행 진입점을 만들고 `--dependencies`가 package.xml에 프로젝트 API 의존성을 기록한다. `fr3_tasks/fr3_tasks/read_state.py`를 수정해 작업을 추가한다. 새 터미널은 Humble → 프로젝트 install → 작업 워크스페이스 install 순서로 source한다. 두 터미널의 `ROS_DOMAIN_ID`를 같게 유지하고 두 번째 로봇 서버를 시작하지 않는다.
+
+이 분리 방법도 프로젝트 API를 재사용한다. 프로젝트 없이 구성하려면 공식 franka_ros2/MoveIt 환경을 설치하고 MoveGroup/ExecuteTrajectory/Franka 그리퍼 액션 클라이언트를 직접 작성해야 한다. Python의 `Robot`은 공식 libfranka 클래스가 아니라 이 프로젝트가 제공하는 편의 API다. [공식 Humble 패키지 작성 안내](https://docs.ros.org/en/humble/Tutorials/Beginner-Client-Libraries/Creating-Your-First-ROS2-Package.html)를 참고한다.
+
 ## 연결과 실행의 수명
 
 `Robot`은 독립 ROS Context와 executor를 소유한다. import만으로 ROS를 초기화하거나 서버에 연결하지 않는다. 첫 동작에서 URDF/SRDF와 액션 서버를 확인한 뒤 같은 객체가 이를 재사용한다. 각 이동과 상태 조회는 새 JointState를 확인한다. 전역 rclpy Context를 종료하지 않으므로 외부 ROS 코드의 자원과 구분된다.
@@ -100,4 +141,4 @@ ROS 인자 `-p backend:=real -p robot_ip:=...`도 명시적인 real 선택이다
 
 실물 실행 실패 응답도 목표를 유지하고 정지를 요청한다. 팔의 ABORTED/CONTROL_FAILED/TIMED_OUT은 정지 확인으로 보지 않는다. 손은 공식 `/franka_gripper/stop` 서비스까지 요청하며 목표 종료와 서비스 성공을 함께 확인해야 차단을 해제한다. 수락 대기 상태가 미확인이거나 서비스가 실패하면 차단을 유지한다. 서비스 성공은 물리적 정지 성능의 검증이 아니다.
 
-현재 backend는 GenericSystem의 fake와 공식 FrankaHardwareInterface의 real이다. Isaac Sim, Pose 목표, 카메라와 물체 작업은 구현하지 않았다. 해당 기능을 추가할 때는 상태 발행자, 시간, 컨트롤러 액션, 모델 확인 조건을 함께 검토한다. 기존 관절/그리퍼 함수를 짧은 작업 파일에 조합하는 것부터 시작한다. 가상 재현과 실제 FCI 연결/동작 검증은 별개다.
+현재 backend는 GenericSystem의 fake와 공식 FrankaHardwareInterface의 real이다. 카메라는 [팔 장착 D435i 캘리브레이션](calibration.md)으로 촬영, 보정 계산과 베이스 좌표 확인을 할 수 있다. 별도 [CV 선택 집기 작업](pick-and-return.md)의 `PickAndReturn`이 TCP Pose 계획과 직선 접근을 제공하고, `Robot.grasp(width, force, speed=0.01, epsilon=0.003)`가 공식 Grasp를 호출한다. 단위는 폭/허용 오차 m, 힘 N, 속도 m/s다. fake는 손가락 위치만 움직인다. Isaac Sim 연결, 임의 집기 자세 탐색과 미끄러짐 검출은 구현하지 않았다. 가상 재현과 실제 FCI 연결/동작 검증은 별개다.

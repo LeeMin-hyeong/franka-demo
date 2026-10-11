@@ -15,6 +15,7 @@ target_compile_options(moveit_demo PRIVATE -Wall -Wextra -Wpedantic)
 ament_target_dependencies(moveit_demo rclcpp moveit_ros_planning_interface sensor_msgs)
 install(TARGETS moveit_demo DESTINATION lib/${PROJECT_NAME})
 ament_python_install_package(${PROJECT_NAME})
+# --symlink-install은 원본을 가리키므로 Python 진입점의 Git 실행 권한이 필요하다.
 install(PROGRAMS scripts/moveit_demo.py examples/basic_sequence.py examples/read_state.py
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})

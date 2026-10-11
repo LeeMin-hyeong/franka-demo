@@ -1,12 +1,14 @@
 # 검증 기록
 
-2026-10-10 KST에 기존 WSL2 Ubuntu 22.04 환경에서 수행했다. 성공한 항목과 남은 문제를 구분한다. 실물 FR3나 FCI 연결은 사용하지 않았다.
+2026-10-10~11 KST에 기존 Ubuntu 22.04 가상 검증 환경에서 수행했다. 성공한 항목과 남은 문제를 구분한다. native 제어 PC의 실시간 성능, 실물 FR3와 FCI 연결은 검증하지 않았다.
+
+최신 [초보자 관점 검토](beginner-review.md)에는 문서 보완, 설치 점검 재실행과 새 ROS2 작업 워크스페이스의 빌드/실제 가상 상태 조회 결과를 정리했다. 처음 실행하는 순서는 [처음 사용하기](getting-started.md)를 따른다.
 
 ## 환경과 소스
 
 | 항목 | 검증 환경 |
 |---|---|
-| OS | WSL2 Ubuntu 22.04.5 LTS, x86_64 |
+| OS | Ubuntu 22.04.5 LTS, x86_64, 기존 가상 검증 환경 |
 | 컴파일러 / CMake | GCC 11.4.0 / CMake 3.22.1 |
 | ROS2 | Humble, `/opt/ros/humble` |
 | MoveIt2 | Ubuntu apt 패키지 2.5.10 |
@@ -25,7 +27,7 @@
 ./scripts/build.sh
 ```
 
-기존 ROS Humble 환경에서 apt 설치와 rosdep 의존성 설치를 실제 수행했다. 설치 스크립트의 관리자 작업은 WSL root로 검증했다. 신규 Ubuntu에 ROS 자체를 처음 설치하는 README 4.2 전체 절차는 실행하지 않았다.
+기존 ROS Humble 환경에서 apt 설치와 rosdep 의존성 설치를 실제 수행했다. 설치 스크립트의 관리자 작업은 root로 검증했다. 신규 Ubuntu에 ROS 자체를 처음 설치하는 README 4.2 전체 절차는 실행하지 않았다.
 
 전체 빌드는 필요한 공식 패키지와 데모 총 11개를 완료했다. standalone 계산기, 테스트 프로그램, `real_api_compile_check` OBJECT도 빌드했다.
 
@@ -243,7 +245,7 @@ Joint 4를 +0.1 rad 이동한 최종 자세:
 
 ## 신규 설치 진입점과 실물 구성 추가 검증
 
-`start.sh`에 ROS 최초 설치부터 가상 Python 예제까지 연결하는 진입점을 추가했다. `setup.sh`는 ROS가 없을 때 공식 ROS apt 설정, 시스템 패키지 갱신과 Humble 설치를 수행한다. 기존 ROS 설치를 사용하는 setup 재실행과 rosdep은 실제 WSL에서 다시 통과했다. 공식 소스 버전과 기존 워크스페이스를 보존했다.
+`start.sh`에 ROS 최초 설치부터 가상 Python 예제까지 연결하는 진입점을 추가했다. `setup.sh`는 ROS가 없을 때 공식 ROS apt 설정, 시스템 패키지 갱신과 Humble 설치를 수행한다. 기존 ROS 설치를 사용하는 setup 재실행과 rosdep은 기존 Ubuntu 환경에서 다시 통과했다. 공식 소스 버전과 기존 워크스페이스를 보존했다.
 
 ```bash
 bash tests/test_bootstrap.sh
@@ -262,7 +264,7 @@ python3 tests/check_real_configuration.py
 | 빌드/doctor | 11개 ROS 패키지, standalone와 API OBJECT 빌드 성공, CTest 5/5와 설치/import 검사 통과 |
 | Python guard | 모델/IP 거부, 실패 또는 정지 결과 미확인 후 이동 차단, raw 측정 중단, 중복 발행자, 실물 손 stop 서비스 처리 등 일곱 묶음 PASS. ROS 통신을 대체한 로직 검사 |
 | 실물 launch 설정 | 5/5 PASS. 손 없는/포함 모델, 정확한 실물 plugin과 IP, 공식 effort/1000 Hz YAML 보존, 실물 MoveIt 팔 컨트롤러만 연결. 소켓/ROS 노드 생성은 차단 |
-| 실물 CLI 경계 | IP/명시적 이동 누락과 잘못된 옵션 거부. 직접 Python ROS CLI에도 명시하지 않은 실물 기본 목표가 없음. 모든 real-*와 doctor --real의 WSL 거부 확인. launch --show-args는 연결 없이 성공 |
+| 실물 CLI 경계 | IP/명시적 이동 누락과 잘못된 옵션 거부. 직접 Python ROS CLI에도 명시하지 않은 실물 기본 목표가 없음. 모든 real-*와 doctor --real의 지원하지 않는 제어 환경 거부 확인. launch --show-args는 연결 없이 성공 |
 | 가상 smoke | Python Home → Joint 4 +0.1 → 그리퍼 0.04 m → Home 성공. 별도 새 구독으로 9개 관절, ready, mimic, 한 발행자 검사 |
 
 smoke의 최종 Joint 4는 -2.356186 rad, 전체 그리퍼 폭은 0.04001853 m였다. 실제 FCI 드라이버를 시작하지 않았다. 가상 서버의 종료에서 아래 기존 MoveIt 소멸자 오류는 다시 발생했다. smoke PASS는 계획/실행/측정 상태 검사의 결과이며 종료 충돌이 해결됐다는 의미가 아니다.
@@ -274,13 +276,94 @@ smoke의 최종 Joint 4는 -2.356186 rad, 전체 그리퍼 폭은 0.04001853 m�
 실물 실행의 ABORTED/CONTROL_FAILED/TIMED_OUT과 손의 실패 결과도 정지 확인으로 취급하지 않는다. 실패 목표 정보를 남기고 stop 요청을 시도하며, 손은 이미 종료된 목표의 취소만으로 정지하지 못할 수 있어 공식 `/franka_gripper/stop` Trigger 서비스를 사용한다. 손의 목표 종료와 서비스 성공 응답을 함께 확인해야 차단을 해제하며 수락 미확인, 서비스 실패/timeout은 유지한다. 이 검사에서도 서비스와 결과는 대체했으며 실제 정지 성능은 검증하지 않았다.
 
 - [x] 최초 설치 흐름과 재실행 분기 테스트
-- [x] 기존 WSL ROS 환경의 실제 setup/build/doctor와 가상 팔/손 회귀 검증
+- [x] 기존 Ubuntu ROS 환경의 실제 setup/build/doctor와 가상 팔/손 회귀 검증
 - [x] 실물 모델과 실행 구성의 연결 없는 검사
 - [ ] ROS가 없는 신규 Ubuntu에서 start.sh 전체 설치/실행: **Not Tested**
-- [ ] 추가한 GitHub Ubuntu 22.04 CI의 실제 실행: **Not Tested**
+- [ ] GitHub Ubuntu 22.04 CI의 전체 통과: **미확인**. 최초 실행에서 아래 Python 실행 권한 오류가 보고됐으며 수정 후 원격 재실행은 아직 확인하지 않았다.
 - [ ] native PREEMPT_RT PC, 실제 FR3/Hand 접속/이동/정지와 FCI 성능: **Not Tested**
 
 실물 준비와 두 터미널의 실행 절차는 [real-robot.md](real-robot.md)에 있다. 로봇 IP와 시스템 버전이 주어지지 않아 실제 로봇 접속은 수행하지 않았다. 소프트웨어 설치에 커널 교체, 네트워크 재설정, 펌웨어 변경과 FCI 활성화를 숨겨 포함하지 않는다.
+
+## CI Python 실행 권한 수정 검증
+
+2026-10-10 GitHub CI의 smoke 단계에서 `ros2 run fr3_moveit_demo basic_sequence.py`가 `No executable found`로 실패했다. Python 진입점 세 개가 Git에 100644로 저장되어 있었고, ament의 `--symlink-install`은 원본 실행 권한을 그대로 사용했다. 기존 마운트의 파일 권한이 Git 실행 권한과 달라 이 오류를 발견하지 못했다.
+
+`moveit_demo.py`, `basic_sequence.py`, `read_state.py`의 Git 모드를 100755로 수정했다. `doctor.sh`에는 ros2 run과 같은 실행 파일 검색 API를 사용하는 `tests/check_installed_executables.py`를 추가했다. 모듈 import 성공과 실행 파일 검색 성공을 별도로 검사하며 로봇에 연결하지 않는다.
+
+Linux 파일시스템 `/tmp`에 Git 인덱스로 새 체크아웃을 만들고 fr3_moveit_demo를 새 build/install 디렉터리에서 symlink 빌드했다. 공식 의존성은 기존 Humble 워크스페이스를 재사용했다. Python 원본 세 개의 권한이 755로 복원되는 것을 확인했고 단일 패키지 빌드는 성공했다.
+
+| 검사 | 결과 |
+|---|---|
+| Python 원본을 644로 변경 | 새 검사에서 세 실행 파일 모두 누락 검출, ros2 run의 `No executable found` 재현 |
+| 원본을 755로 복구 | doctor의 실행 파일 검색, Robot API와 실물 메시지 import 통과 |
+| 새 Linux 체크아웃의 smoke | `SEQUENCE COMPLETE`, 팔 ready, 9개 관절과 한 발행자, 그리퍼 전체 폭 0.04001986 m 검사 통과 |
+
+실물 드라이버와 FCI는 실행하지 않았다. 별도 ROS_DOMAIN_ID=84를 사용했고 해당 smoke의 프로세스만 종료했다. 기존 사용자 ROS 서버는 유지했다. 수정 후 GitHub CI 전체 재실행과 ROS가 없는 Ubuntu 최초 설치 전체를 검증한 결과는 아니다. 기존 MoveIt 종료 충돌도 이 수정의 해결 범위에 포함하지 않는다.
+
+## 팔 장착 카메라 보정 코드 재사용 검증
+
+사용자가 제공한 `Calibration_Tutorial.zip`의 수동 촬영과 `handeye_calibration.py` 계산을 FR3에 연결했다. 두산 ZYZ/DSR 자세 입력을 영상 시각의 ROS TF로 교체하고, 원본 체커보드 검출/내부 보정/PnP/PARK 흐름을 유지했다. 고정 25 mm 보드 점 생성은 설정값을 사용하도록 수정했다. 자동 집기와 OnRobot 제어는 가져오지 않았다.
+
+제공된 체커보드 PDF를 확인한 결과 A4 가로, 11×8칸, 내부 코너 10×7, 칸 크기 25 mm였다. PDF를 저장소에 추가했고 실제 크기 인쇄/실측 조건을 문서화했다.
+
+| 검사 | 결과와 범위 |
+|---|---|
+| Humble 패키지 빌드 | 변경한 fr3_moveit_demo의 symlink 빌드 성공 |
+| 좌표 계산 단위 검사 | 5/5 PASS. 깊이 m/mm, optical 축, 변환 방향, NPY 단위, 잘못된 SE(3)/quaternion 거부 |
+| 보정 계산 검사 | 4/4 PASS. 칸 크기 설정, PARK 정답 복원, 부족한/같은 회전축 자세 거부, 합성 체커보드 20장으로 CLI 보정/저장/덮어쓰기 거부 |
+| ROS 합성 통신 검사 | 6개 묶음 PASS. 센서 QoS/동기화/영상 시각 TF/PointStamped, 두 깊이 encoding, 프레임/해상도/시각 거부, 깊이/TF 실패, 보정 K/D 사용과 메타데이터 검사, RGB/TF 기록과 PNG/JSON 저장 |
+
+합성 영상부터 저장까지 검사한 결과는 실물 정확도 검증이 아니다. 촬영/계산/클릭 프로그램에서 Robot 이동 액션과 FCI 연결을 호출하지 않았다. 별도 ROS_DOMAIN_ID=127의 합성 통신만 사용했고 기존 사용자 ROS 서버는 유지했다. 실제 FR3/D435i 촬영, 브래킷/하중 설정, 보정 오차와 카메라 좌표 기반 이동은 **Not Tested**다. 실행 절차와 재현 명령은 [calibration.md](calibration.md)에 있다.
+
+## 전체 실행 환경 설치 검토 (2026-10-11)
+
+`./scripts/start.sh --install-only --with-camera`로 ROS2 Humble, 공식 Franka 의존성, MoveIt/RViz, Python/C++ 예제, 보정용 OpenCV/NumPy/cv_bridge와 D435i SDK/드라이버를 설치하고 빌드/점검하도록 보완했다. 이 모드는 카메라 노드와 로봇 서버를 시작하지 않는다. 기존 소스와 RealSense USB 규칙은 보존한다.
+
+ROS apt의 librealsense2는 ROS 패키지 목록에 등록되지 않는 일반 CMake 라이브러리다. doctor는 apt 설치 상태와 드라이버 공유 라이브러리를 검사한다. 해당 SDK deb에는 USB 권한 규칙이 없어 카메라 설치 옵션에서 공식 v2.58.4 규칙을 준비한다. 사용자는 설치 후 카메라 USB를 다시 연결한다. 다른 장치의 reset/trigger는 수행하지 않는다.
+
+| 검사 | 결과와 범위 |
+|---|---|
+| 최초 ROS 설치 분기 | 15/15 PASS. 시스템 설치 명령을 대체한 검사 |
+| 통합 설치 진입점 | 9/9 PASS. 카메라 옵션 전달, GUI 없는 install-only, 실패 후 실행 차단 |
+| 카메라 설치 분기 | 5/5 PASS. 기존 규칙 보존, 신규 규칙 설치, apt/다운로드/설치 실패와 임시 파일 정리 |
+| 실제 통합 명령 재실행 | setup/rosdep 성공, 11개 ROS 패키지 빌드, standalone/API OBJECT 컴파일, CTest 5/5, doctor --camera 성공 |
+| Python 영상 호환성 | Ubuntu apt OpenCV 4.5.4/NumPy 1.21.5에서 CvBridge 영상 왕복 성공. 스크립트는 시스템 Python과 PYTHONNOUSERSITE=1 사용 |
+| D435i 설치 점검 | SDK 2.58.4, wrapper 4.58.4 설치. 일반 사용자로 USB 규칙, 드라이버 검색/링크와 launch 옵션 검사 성공 |
+| 보정 검사 | 좌표 계산 5/5, 손눈 보정 4/4, ROS 합성 통신 6개 묶음 PASS |
+| 제어 구성 검사 | Python guard 7개 묶음, CLI 기본값, 실물 launch 구성 5/5 PASS. 실제 연결 없음 |
+| 가상 팔/그리퍼 | 도메인 130의 CI와 같은 timeout 명령이 exit 0. Home → Joint 4 이동 → 그리퍼 → Home, 9개 관절/ready/한 발행자와 폭 0.04001971 m 확인 |
+
+첫 smoke 재실행은 이동과 상태 검사가 성공했으나 외부 명령이 exit 1을 반환했고 원인을 확정하지 못했다. 이어 직접 실행과 CI와 같은 timeout 실행은 각각 exit 0으로 끝났다. 기존 MoveIt 종료 segmentation fault는 마지막 실행에서도 재현됐다. 가상 이동 성공이 오류 없는 종료를 뜻하지 않는다.
+
+실제 설치/빌드는 ROS가 이미 있는 Ubuntu 22.04 개발 환경에서 수행했다. 새 Ubuntu Desktop에 ROS가 전혀 없는 상태의 전체 설치와 수정 후 GitHub CI는 **Not Tested**다. 최초 설치 분기 검사는 실제 빈 OS 설치를 대체하지 않는다. 실제 FR3/Hand/D435i 접속, 영상 수신, 보정 정확도와 실물 이동은 **Not Tested**다. RT 커널/권한, IP와 FCI/Desk 설정은 설치 스크립트에서 자동 변경하지 않는다.
+
+마지막 통합 설치 로그는 로컬 `ros2_ws/start-environment-review-final.log`에 남겼다. 설치 안내는 README, 실물 준비는 [real-robot.md](real-robot.md), 카메라와 보정은 [calibration.md](calibration.md)에 정리했다.
+
+## 보정 좌표에서 집기/들기/원위치 놓기 검증 (2026-10-11)
+
+사용자 요청에 따라 CV 창에서 직육면체 윗면 중심을 선택하고, 접근 → 집기 → 5 cm 상승 → 원위치 하강 → 손 열기 → 시작 팔 관절 복귀를 추가했다. 이동 전의 관절값을 저장하므로 Home으로 바꾸지 않는다. 별도 `pick_and_return.py`는 `--execute`가 있어야 동작한다.
+
+| 검사 | 결과와 범위 |
+|---|---|
+| Humble 빌드 | 변경한 fr3_moveit_demo의 symlink 빌드 성공. shape_msgs 의존성 추가 |
+| 작업 입력/실패 검사 | 6개 묶음 PASS. 무효 깊이/치수/작업대/힘 거부, 단위 quaternion, 부분 Cartesian 경로 실행 차단, 집기 실패 뒤 상승/해제/복귀 차단, GUI 추가 클릭 차단과 협조 중단, 실제 Grasp 메시지/측정 폭 검사 |
+| 실물 목표 처리 회귀 | 기존 7개 묶음 PASS. GripperGrasp에도 raw 상태 검사, 실패 latch와 stop 서비스 처리를 확장. ROS/FCI 연결 없이 응답을 대체 |
+| 보정 ROS 회귀 | 합성 영상/TF 기록과 PointStamped 검사 6개 묶음 PASS |
+| 가상 통합, GUI 포함 | 도메인 139에서 실제 OpenCV 창을 만들고 클릭 콜백에 중앙 좌표를 입력. 알려진 합성 NPY, 영상 시각의 팔 TF와 정렬 깊이에서 XYZ를 얻어 전체 작업 성공 |
+| 가상 통합, headless | 도메인 140에서 같은 클릭 콜백과 전체 작업이 exit 0. Scene 붙임/분리, 손가락 폭과 시작 관절 복귀 검사 |
+| 사용자 GUI 진입점 | 도메인 142에서 pick_and_return.py의 main에 중앙 클릭 콜백을 주입. 실제 CV 창, 작업 스레드, 8단계 완료와 JSON 보고서 검사 PASS |
+| 최종 headless 통합 | 도메인 143, Cartesian 접근을 포함한 최종 코드로 전체 검사 exit 0. 시작 TCP와 최종 FK 위치 차이 0.00007750 m, 관절 복귀/원위치 Scene 검사 PASS |
+| 설치 점검 | doctor --camera에서 PickAndReturn과 공식 Grasp 메시지 import, 새 CLI --help 검사 성공 |
+
+가상 선택점은 베이스 `[0.45, 0, 0.25]` m, 블록 크기는 `[0.04, 0.03, 0.05]` m, 받침대 상단은 Z=0.20 m다. 도메인 139에서 측정 FK의 TCP Z는 집을 때 0.22500006 m, 들었을 때 0.27499998 m, 내려놓았을 때 0.22500008 m였다. 집기 폭은 0.03001466 m, 해제 폭은 0.04998132 m였다. 시작 관절은 최종 오차 0.002 rad 이내로 복귀했고 Scene 물체의 원위치도 확인했다.
+
+개발 중 Humble quaternion 기본 W, attach의 world 자동 제거와 Scene 물체의 object/shape pose 및 world 프레임 정규화를 확인해 처리했다. 임시 Robot을 여러 번 생성한 테스트에서 FK 응답 timeout도 관찰했다. 합성 카메라 설정은 기존 TF를 읽도록 단순화했고 새 서비스의 응답 채널 발견을 기다린 뒤 첫 요청을 보낸다. timeout 후 이동을 자동 재시도하지 않는다.
+
+사용자 GUI 진입점의 첫 실행(도메인 141)은 OMPL 접근 목표의 다른 IK 해에서 수직 하강의 fraction=0.142857을 반환해 실행 전에 차단됐다. 접근도 현재 관절 해에서 Cartesian으로 계산하도록 보완했고 도메인 142에서는 전체 GUI 작업이 exit 0으로 완료됐다. 우회 경로를 자동 찾는 방식은 아니며 직선 접근/하강이 모두 유효한 배치에서 사용한다.
+
+검증은 실제 ROS/MoveIt/GenericSystem 실행이지만 물체 접촉, 실제 보정 정확도와 실물 집기 검증은 아니다. 실제 FR3/Hand/D435i 촬영/이동/집기/정지와 운영체제 마우스 클릭 전달은 **Not Tested**다. 코드로 OpenCV 클릭 콜백에 이벤트를 넣었으며 실제 GUI 창은 실행했다. 원격 GitHub CI는 이번 변경 후 아직 실행하지 않았다. 기존 MoveIt 종료 segmentation fault도 마지막 가상 실행에서 남아 있다.
+
+재현은 `ROS_DOMAIN_ID=131 bash scripts/test_pick.sh`, GUI 창을 포함하려면 `FR3_PICK_GUI=1 ROS_DOMAIN_ID=131 bash scripts/test_pick.sh`다. 사용자 CLI와 작업 스레드의 전체 검사는 `FR3_PICK_GUI=main ROS_DOMAIN_ID=131 bash scripts/test_pick.sh`로 제공한다. 실물 사용 조건과 두 모드의 실행은 [pick-and-return.md](pick-and-return.md)에 있다. 로컬 `ros2_ws/pick-server.log`, `pick-client.log`, `pick-report.json`은 Git에서 제외한다.
 
 ## 알려진 문제와 검증의 한계
 
@@ -292,8 +375,8 @@ run.sh는 background launch가 SIGINT 무시 상태를 상속하지 않도록 �
 
 `No 3D sensor plugin(s) defined for octomap updates`도 출력된다. 이 데모는 3D 센서/Octomap 입력을 구성하지 않는다. 이 로그와 별개로 모델/Planning Scene 기준 관절 경로 계획은 성공했다.
 
-WSL 시스템 시각이 뒤로 이동하는 robot_state_publisher 경고도 관찰했다. 보간은 steady_clock을 사용하므로 해당 실행은 최종값에 도달했지만 ROS 타임스탬프까지 단조라고 보장하지 않는다.
+검증 환경에서 시스템 시각이 뒤로 이동하는 robot_state_publisher 경고도 관찰했다. 보간은 steady_clock을 사용하므로 해당 실행은 최종값에 도달했지만 ROS 타임스탬프까지 단조라고 보장하지 않는다.
 
-ROS 설치가 이미 존재하는 WSL 환경에서 검증했으므로 깨끗한 Ubuntu 신규 설치 전체를 성공했다고 주장하지 않는다. RViz 렌더링은 실제 실행했으나 사용자 WSLg 창의 직접 마우스 조작은 별도 검증하지 않았다. 실제 충돌 접촉, 하중, 센서, jerk, 위치 의존 속도 제한, FCI 통신과 안전성은 검증 범위 밖이다.
+ROS 설치가 이미 존재하는 가상 검증 환경에서 검증했으므로 깨끗한 native Ubuntu 신규 설치 전체를 성공했다고 주장하지 않는다. RViz 렌더링은 실제 실행했으나 운영체제 마우스 조작은 별도 검증하지 않았다. 실제 충돌 접촉, 하중, 센서, jerk, 위치 의존 속도 제한, FCI 통신과 안전성은 검증 범위 밖이다.
 
 전체 빌드, 설치, 런타임 로그는 로컬의 `ros2_ws/*.log`와 colcon log 폴더에 남기며 Git에서는 제외한다. 재현 명령은 위와 README에 기재했다.

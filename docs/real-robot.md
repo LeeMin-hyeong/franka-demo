@@ -16,9 +16,11 @@
 
 Humble은 Ubuntu 22.04를 기준으로 한다. 현재 라이브러리 조합은 공식 호환 범위에 맞지만 로봇 시스템 버전도 함께 맞아야 한다. 5.8/5.7의 로봇에 현재 libfranka를 그대로 연결하지 않는다. Desk의 Settings/Dashboard에서 시스템 버전을 확인하고, 새 버전 역시 최신 공식 호환표와 로봇 매뉴얼을 확인한다. 저장소는 펌웨어를 업데이트하거나 다운그레이드하지 않는다. [FR3 호환표](https://franka.de/fr3-compatibility-matrix), [Humble 의존성 호환](https://frankarobotics.github.io/docs/doc/franka_ros2_humble/franka_ros2/doc/compatibility_matrix.html)
 
-WSL2는 가상 모델과 프로그램 학습용으로 사용한다. 모든 `run.sh real-*` 명령은 WSL2를 거부한다. 실물 제어 루프는 낮은 지연과 안정적인 통신을 요구하므로 native Linux 제어 PC에서 실행한다. Python은 목표를 요청하고 공식 C++ 드라이버가 FCI 제어 루프를 담당한다. [FCI 시스템/네트워크 요구](https://frankarobotics.github.io/docs/doc/libfranka/docs/system_requirements.html)
+실물 제어 루프는 낮은 지연과 안정적인 통신을 요구하므로 Ubuntu 제어 PC에서 실행한다. Python은 목표를 요청하고 공식 C++ 드라이버가 FCI 제어 루프를 담당한다. [FCI 시스템/네트워크 요구](https://frankarobotics.github.io/docs/doc/libfranka/docs/system_requirements.html)
 
 ## 1. 소프트웨어 설치
+
+아래는 현재 저장소의 실행 경로다. [공식 환경에 작업 노드를 추가하는 구성안](official-addon.md)은 문서로만 남겨두며, 이번 변경에서 설치/실행 구조는 바꾸지 않는다.
 
 Ubuntu에 Git도 없다면 설치한 뒤 복제한다. 일반 Ubuntu 사용자로 실행한다.
 
@@ -27,8 +29,7 @@ sudo apt update
 sudo apt install -y git
 git clone https://github.com/LeeMin-hyeong/franka-demo.git
 cd franka-demo
-./scripts/setup.sh
-./scripts/build.sh
+./scripts/start.sh --install-only --with-camera
 ./scripts/doctor.sh
 ```
 
@@ -38,16 +39,7 @@ setup은 ROS가 없으면 공식 ROS2 Humble, MoveIt2, ros2_control과 Franka �
 
 ## 2. RT 커널과 현재 셸의 권한
 
-커널 선택과 재부팅은 이 PC를 관리하는 사용자가 수행한다. setup은 커널을 자동 교체하지 않는다. Franka는 Ubuntu 22.04에서 Ubuntu Pro RT 커널을 권장한다. 다음은 해당 구독을 연결하고 generic RT 커널을 선택하는 예다. 기존 Pro 서비스와의 호환성을 출력에서 확인한다. [Franka RT 안내](https://frankarobotics.github.io/docs/doc/libfranka/docs/real_time_kernel.html), [Canonical 설치 안내](https://ubuntu.com/pro-client/docs/en/latest/howtoguides/enable_realtime_kernel/)
-
-```bash
-sudo apt update
-sudo apt install -y ubuntu-pro-client
-sudo pro attach
-sudo pro enable realtime-kernel
-```
-
-이 명령은 시스템 커널 패키지를 설치한다. 설치 안내에 따라 재부팅하고 RT 커널로 부팅한 다음 확인한다. Pro 대신 직접 RT 커널을 구성하는 경로는 Franka의 공식 문서를 따른다.
+실물 제어에는 PREEMPT_RT 커널이 필요하다. [Franka 공식 RT 커널 준비 안내](https://frankarobotics.github.io/docs/doc/libfranka/docs/real_time_kernel.html)에 따라 설치하고 재부팅한다. 커널 선택은 PC 관리자가 수행하며 setup은 자동으로 커널을 교체하지 않는다. RT 커널로 부팅한 뒤 확인한다.
 
 ```bash
 uname -a
@@ -85,6 +77,19 @@ rtprio는 99 이상, memlock은 102400 이상 또는 unlimited여야 한다. doc
 ## 3. Control LAN과 Desk 준비
 
 로봇 설치/고정과 Arm-Control 케이블 연결, 하중과 장착물, 작업 공간과 정지 장치 준비는 해당 FR3 매뉴얼을 따른다. 외부 activation device와 물리적 emergency stop은 같은 장치로 간주하지 않는다. 소프트웨어 Ctrl+C도 물리적인 비상 정지를 대신하지 않는다. [FR3 매뉴얼](https://franka.de/documents), [FCI 로봇 준비](https://frankarobotics.github.io/docs/doc/libfranka/docs/getting_started.html)
+
+**Control IP를 모르는 최초 접속:** PC를 팔 베이스의 X5 LAN에 연결하고 Ubuntu 설정 → 네트워크 → 해당 유선 연결 → IPv4를 자동(DHCP)으로 둔다. 로봇 부팅 후 `https://robot.franka.de`를 연다. 로봇 네트워크의 출고 기본 주소는 `192.168.0.1`이지만 기존 장비에서 변경됐을 수 있다. X5는 Desk 초기 설정용이며 아래 FCI 코드 제어용 포트와 다르다. [System 5.9 운용 매뉴얼, 3.1.3~3.1.4절](https://franka.de/hubfs/Operating%20Manual%20Franka%20Research%203_5.9_R02216_1.2.2_EN.pdf?hsLang=en)
+
+새 장비의 First Start 화면에서 계정과 네트워크, Franka World 등록/동기화를 설정한다. 기존 장비는 관리자의 계정과 설정을 확인하고 초기화하지 않는다. Desk Settings의 네트워크에서 **Shop Floor LAN의 DHCP Client를 해제**하고 아래 Control 고정 주소를 적용한 뒤, PC 케이블을 Control LAN으로 옮긴다. PC 유선 IPv4를 수동으로 바꾸어 주소와 마스크를 입력한다. 로봇 전용 직결 LAN에는 게이트웨이/DNS를 지정하지 않고 설치용 인터넷은 별도 연결로 유지한다.
+
+```mermaid
+flowchart LR
+    A[PC: IPv4 자동 DHCP] --> B[팔 X5: Desk 최초 접속]
+    B --> C[Desk: Control Shop Floor 고정 IP 설정]
+    C --> D[케이블을 Control LAN으로 이동]
+    D --> E[PC: 같은 서브넷의 수동 IP]
+    E --> F[Desk 확인 후 FCI 코드 제어]
+```
 
 PC의 유선 LAN을 **Control의 LAN 포트**에 직접 연결한다. Arm 베이스 LAN 포트는 FCI 제어용 연결이 아니다. Control의 Shop Floor 네트워크와 PC를 같은 서브넷으로 설정한다. 공식 문서의 예시는 다음과 같으며 로봇의 출고 기본 주소라고 가정하지 않는다.
 
@@ -158,7 +163,7 @@ Home은 공식 SRDF `ready`인 `[0, -π/4, 0, -3π/4, 0, π/2, π/4]` rad로 이
 
 표준 손의 전체 모델 폭은 0~0.08 m다. 0.04 m는 40 mm 전체 폭이고 각 손가락 위치는 0.02 m다. API는 **`/franka_gripper/move`의 `franka_msgs/action/Move`**를 호출하고 실제 폭 변화와 duration으로 `speed = min(0.05, abs(target-current)/duration)` m/s를 계산한다. duration은 속도 계산 기준이며 완료 시간을 정확히 보장하지 않는다. 모델 범위 안이어도 실제 장착 손가락이나 측정 최대 폭에 따라 드라이버가 거부할 수 있다. [고정 소스의 Move 액션](https://github.com/frankarobotics/franka_ros2/blob/3b50164eabbe2d461baca007bbbbe03c024387bd/franka_gripper/src/gripper_action_server.cpp), [Move 메시지](https://github.com/frankarobotics/franka_ros2/blob/3b50164eabbe2d461baca007bbbbe03c024387bd/franka_msgs/action/Move.action)
 
-물체를 잡는 grasp/force 제어와 자동 homing은 수행하지 않는다. homing이 필요한 상태이면 제조사 매뉴얼에 따라 사용자가 먼저 수행한다. homing 자체가 손가락을 움직이므로 접속 과정에 숨겨 실행하지 않는다. 직접 Move는 MoveIt의 손 경로 충돌 검사를 거치지 않는다. 폭 목표에 닿지 않거나 접촉/오류가 발생하면 실패로 다룬다.
+이 폭 이동 명령은 grasp/force 제어와 자동 homing을 수행하지 않는다. 물체 집기는 별도 [CV 선택 집기 작업](pick-and-return.md)에서 공식 Grasp를 사용하며 실제 검증은 아직 수행하지 않았다. homing이 필요한 상태이면 제조사 매뉴얼에 따라 사용자가 먼저 수행한다. homing 자체가 손가락을 움직이므로 접속 과정에 숨겨 실행하지 않는다. 직접 Move는 MoveIt의 손 경로 충돌 검사를 거치지 않는다. 폭 목표에 닿지 않거나 접촉/오류가 발생하면 실패로 다룬다.
 
 Franka 공식 문서의 일부 예시는 `/fr3_gripper`이지만 현재 고정 launch 소스의 노드명은 `franka_gripper`다. 이 저장소는 실제 고정 소스의 이름을 사용한다.
 
@@ -191,7 +196,7 @@ with Robot(backend='real', robot_ip='172.16.0.2') as robot:
 
 | 증상 | 확인할 사항 |
 |---|---|
-| native/RT/권한 검사 거부 | WSL 여부, RT 커널 부팅, 새 로그인 셸의 ulimit 확인 |
+| RT/권한 검사 거부 | Ubuntu 제어 PC, RT 커널 부팅, 새 로그인 셸의 ulimit 확인 |
 | Connection timeout | Control LAN/IP, FCI 설치와 활성화, 로봇 준비 상태 |
 | UDP receive Timeout | 유선 연결과 UDP 방화벽, 실제 네트워크 품질 |
 | Incompatible Library Version | Desk 시스템 버전과 Robot Server 호환, 현재 고정 libfranka 요구 조건 |

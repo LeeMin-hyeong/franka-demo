@@ -132,12 +132,14 @@ for kind, result in (
         ('Execution', NS(status=5, result=NS(error_code=NS(val=-7)))),
         ('Execution', NS(status=4, result=NS(error_code=NS(val=1)))),
         ('GripperMove', NS(status=5, result=NS(success=False, error=''))),
-        ('GripperMove', NS(status=4, result=NS(success=True, error='')))):
+        ('GripperMove', NS(status=4, result=NS(success=True, error=''))),
+        ('GripperGrasp', NS(status=5, result=NS(success=False, error=''))),
+        ('GripperGrasp', NS(status=4, result=NS(success=True, error='')))):
     stopped = robot_for_stop(kind, result)
     stopped._motion_uncertain = True
     stopped.stop()
     assert not stopped._motion_uncertain and stopped.active_goal is None
-    if kind == 'GripperMove':
+    if kind in ('GripperMove', 'GripperGrasp'):
         assert not stopped.events
 
 pending = robot_for_stop('GripperMove', pending=True)
@@ -223,7 +225,7 @@ else:
 raw_robot._raw_states['arm']['stamp_ns'] = 998_000_000_000
 sent = []
 client = NS(send_goal_async=lambda goal: sent.append(goal))
-for kind in ('Execution', 'GripperMove'):
+for kind in ('Execution', 'GripperMove', 'GripperGrasp'):
     try:
         raw_robot._action_result(client, object(), 1.0, kind)
     except RuntimeError as error:
@@ -281,16 +283,17 @@ for error_code in (-4, -6):  # MoveIt CONTROL_FAILED / TIMED_OUT는 정지 확�
     arm_failure.stop()
     assert arm_failure._motion_uncertain and arm_failure.active_goal is not None
 
-for status in (6, 4):  # ABORTED 및 모순된 SUCCEEDED+success=False도 모두 실패다.
-    gripper_failure = robot_with_action_result('GripperMove', NS(status=status, result=NS(success=False, error='Synthetic failure')))
-    assert gripper_failure._motion_uncertain and gripper_failure.active_goal is not None
-    gripper_failure._request_real_gripper_stop = lambda: False
-    gripper_failure.stop()
-    assert gripper_failure._motion_uncertain and gripper_failure.active_goal is not None
-    gripper_failure._request_real_gripper_stop = lambda: True
-    gripper_failure.stop()
-    assert not gripper_failure._motion_uncertain and gripper_failure.active_goal is None
-    assert not gripper_failure.events
+for kind in ('GripperMove', 'GripperGrasp'):
+    for status in (6, 4):  # ABORTED 및 모순된 SUCCEEDED+success=False도 모두 실패다.
+        gripper_failure = robot_with_action_result(kind, NS(status=status, result=NS(success=False, error='Synthetic failure')))
+        assert gripper_failure._motion_uncertain and gripper_failure.active_goal is not None
+        gripper_failure._request_real_gripper_stop = lambda: False
+        gripper_failure.stop()
+        assert gripper_failure._motion_uncertain and gripper_failure.active_goal is not None
+        gripper_failure._request_real_gripper_stop = lambda: True
+        gripper_failure.stop()
+        assert not gripper_failure._motion_uncertain and gripper_failure.active_goal is None
+        assert not gripper_failure.events
 
 unknown_gripper = robot_for_stop('GripperMove', pending=True)
 unknown_gripper._request_real_gripper_stop = lambda: True

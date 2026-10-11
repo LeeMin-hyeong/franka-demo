@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - scripts/**
+      - calibration/**
       - tests/**
       - ros2_ws/src/**
       - standalone/**
@@ -12,6 +13,7 @@ on:
   pull_request:
     paths:
       - scripts/**
+      - calibration/**
       - tests/**
       - ros2_ws/src/**
       - standalone/**
@@ -38,19 +40,36 @@ jobs:
         run: |
           test ! -f /opt/ros/humble/setup.bash
           bash tests/test_bootstrap.sh
+          bash tests/test_install_entrypoint.sh
+          bash tests/test_camera_setup.sh
 
       - name: Install ROS Humble and official Franka dependencies
-        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH bash scripts/setup.sh
+        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH bash scripts/setup.sh --with-camera
 
       - name: Build Python API, C++ learning code and dependency packages
         run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH bash scripts/build.sh
 
       - name: Check installed environment
-        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH bash scripts/doctor.sh
+        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH bash scripts/doctor.sh --camera
+
+      - name: Verify documented task workspace extension
+        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH bash tests/check_task_workspace.sh
+
+      - name: Check offline calibration and synthetic RGB/TF without devices
+        run: |
+          export PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+          export PYTHONNOUSERSITE=1
+          source /opt/ros/humble/setup.bash
+          source ros2_ws/install/setup.bash
+          python3 tests/check_calibration.py
+          python3 tests/check_handeye.py
+          python3 tests/check_pick_guards.py
+          ROS_DOMAIN_ID=127 ROS_LOCALHOST_ONLY=1 python3 tests/check_calibration_ros.py
 
       - name: Check hardware configuration and command guards without FCI
         run: |
           export PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH
+          export PYTHONNOUSERSITE=1
           source /opt/ros/humble/setup.bash
           source ros2_ws/install/setup.bash
           python3 tests/check_robot_guards.py
@@ -59,3 +78,6 @@ jobs:
 
       - name: Exercise virtual arm and gripper without RViz or FCI
         run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH timeout --signal=INT --kill-after=30s 240s bash scripts/smoke_test.sh
+
+      - name: Exercise calibrated selection and pick/lift/replace/return without FCI
+        run: PATH=/usr/bin:/bin:/usr/sbin:/sbin:$PATH ROS_DOMAIN_ID=131 timeout --signal=INT --kill-after=30s 240s bash scripts/test_pick.sh

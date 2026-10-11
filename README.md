@@ -1,5 +1,11 @@
 # FR3 Control Demo
 
+처음이라면 [처음 사용하기](docs/getting-started.md)의 순서대로 진행한다. 설치 → 가상 이동 → 최초 Desk/IP 설정 → 실물 상태 확인 → 작은 이동 → 보정 → 클릭 집기를 연결하고, 각 단계의 성공 기준을 안내한다. 실물 연결과 집기는 아직 현장 검증하지 않았다.
+
+향후에는 **공식 Franka 환경에 카메라와 작업 노드만 추가하는 구성**을 권장한다. [구성안](docs/official-addon.md)에 역할과 적용 전 정리할 사항을 남겼다. 문서로만 정리한 제안이며 현재 설치/실행 구조는 유지한다.
+
+제어 기반은 [공식 franka_ros2의 Humble 브랜치](https://github.com/frankarobotics/franka_ros2/tree/humble)다. 공식 드라이버, 모델과 MoveIt 설정을 재사용하고 설치 안내, 간단한 Python API, 카메라 보정과 작업 예제를 추가했다. 연결/공식 예제만 필요하면 공식 저장소를 직접 사용해도 된다. 공식 저장소의 기본 화면은 Jazzy이므로 Ubuntu 22.04에서는 Humble 문서를 선택한다.
+
 ## 1. 프로젝트 소개
 
 Ubuntu 22.04 + ROS2 Humble에서 Franka Research 3(FR3)를 제어하고 구조를 배우는 프로젝트다. **기본은 Python이며, ROS가 없는 Ubuntu 22.04에서도 저장소를 복제하고 설치부터 가상 팔/그리퍼 실행까지 한 명령으로 시작한다.** 실물 FR3는 준비한 native Ubuntu PC에서 명시적인 별도 명령으로 연결하고 움직인다. FR3는 7개 회전 관절을 가진 연구용 로봇팔이며 공식 URDF와 메시를 사용한다. C++17 MoveIt 예제와 오프라인 궤적 계산기도 학습 자료로 유지한다.
@@ -10,7 +16,7 @@ Ubuntu 22.04 + ROS2 Humble에서 Franka Research 3(FR3)를 제어하고 구조�
 
 | 항목 | 기준 |
 |---|---|
-| 운영체제 | 가상: Ubuntu 22.04 / WSL2 Ubuntu 22.04. 실물: native Ubuntu 22.04 + PREEMPT_RT |
+| 운영체제 | Ubuntu 22.04. 실물 제어는 PREEMPT_RT와 실시간 권한 추가 필요 |
 | ROS2 / 언어 | Humble / C++17, Python 3 |
 | 빌드 / 시각화 | CMake, colcon / RViz2 |
 | franka_ros2 | Humble 브랜치의 `3b50164eabbe2d461baca007bbbbe03c024387bd` |
@@ -20,7 +26,7 @@ Ubuntu 22.04 + ROS2 Humble에서 Franka Research 3(FR3)를 제어하고 구조�
 
 Franka 공식 패키지 일부는 C++20을 사용한다. 학습용 C++ 예제와 오프라인 계산기는 C++17이다. 외부 공식 소스는 `ros2_ws/src/vendor/`에 내려받고 Git에 포함하지 않는다.
 
-MoveIt 가상 데모는 C++과 Python에서 같은 계획 서버를 사용하며 공식 Franka Hand의 열기/닫기를 제공한다. 실물 실행은 Python API와 공식 Franka 드라이버를 사용하고, 그리퍼는 자유 공간의 폭 이동만 요청한다. 실물 그리퍼 힘/접촉 제어, RealSense, 사용자 작성 Torque/Impedance 제어기, 자체 IK/충돌 회피, Pick & Place, Gazebo, Isaac Sim, Docker 배포는 구현하지 않는다. 공식 실물 팔 컨트롤러 내부는 effort 명령을 사용한다. Offline Preview의 5차 계산기는 C++17이며 팔 7개 관절만 재생한다.
+MoveIt 가상 데모는 C++과 Python에서 같은 계획 서버를 사용하며 공식 Franka Hand의 열기/닫기를 제공한다. 실물 실행은 Python API와 공식 Franka 드라이버를 사용한다. RealSense는 [팔 장착 D435i 캘리브레이션](docs/calibration.md)으로 연결한다. 촬영/보정/좌표 확인 프로그램은 이동을 요청하지 않는다. 별도 [CV 선택 집기 작업](docs/pick-and-return.md)은 클릭한 직육면체를 집어 올렸다 같은 자리에 놓고 시작 자세로 복귀한다. 실물 손은 이 작업에서만 명시적으로 공식 Grasp를 사용하며 실제 장비 검증은 아직 수행하지 않았다. 임의 물체 검출/집기 자세 탐색, 다른 장소로의 자동 이송, 사용자 작성 Torque/Impedance 제어기, 자체 IK/충돌 회피, Gazebo, Isaac Sim, Docker 배포는 구현하지 않는다. 공식 실물 팔 컨트롤러 내부는 effort 명령을 사용한다. Offline Preview의 5차 계산기는 C++17이며 팔 7개 관절만 재생한다.
 
 실제로 수행한 빌드, 테스트, 실행 결과와 미검증 항목은 [검증 기록](docs/validation.md)에 정리한다. 아래 출력과 화면 설명은 기본 옵션에서 확인할 동작을 안내한다.
 
@@ -51,7 +57,7 @@ cd franka-demo
 | 충돌 검사 | MoveIt의 모델/Planning Scene 기준 | 팔은 모델/Planning Scene 기준, 손의 직접 Move는 경로 충돌 검사 없음 | 없음 |
 | 한계 | 동역학/접촉/센서 재현 없음 | 장비/하중/환경/통신을 별도 확인해야 하며 실물 Not Tested | 물리/FCI/컨트롤러 재현 없음 |
 
-MoveIt의 환경 장애물 검사는 Planning Scene에 등록한 물체를 기준으로 한다. 데모는 별도 장애물을 추가하지 않는다. 실제 주변 물체가 자동으로 모델에 들어가지는 않으며, 충돌 검사 성공이 실물 동작의 안전성을 보증하지 않는다. Offline Preview는 관절 제한을 만족해도 자기 충돌이 있을 수 있다.
+MoveIt의 환경 장애물 검사는 Planning Scene에 등록한 물체를 기준으로 한다. 기본 관절 데모는 별도 장애물을 추가하지 않는다. 클릭 집기는 선택한 블록과 작은 받침대만 추가한다. 실제 주변 물체가 자동으로 모델에 들어가지는 않으며, 충돌 검사 성공이 실물 동작의 안전성을 보증하지 않는다. Offline Preview는 관절 제한을 만족해도 자기 충돌이 있을 수 있다.
 
 ## 3. 시스템 아키텍처
 
@@ -112,27 +118,20 @@ URDF는 링크 형상, 관절, 제한을 정의하고 SRDF는 계획 그룹, 충
 
 ## 4. 설치 가이드
 
-### 4.1 WSL2 Ubuntu 22.04 터미널
+### 4.1 Ubuntu 22.04 터미널
 
-Windows PowerShell에서 배포판 이름을 확인하고 Ubuntu 터미널을 연다.
-
-```powershell
-wsl --list --verbose
-wsl -d Ubuntu-22.04
-```
-
-Ubuntu Bash에서 환경을 확인한다. 이후 Bash 명령은 모두 이 터미널에서 실행한다.
+Ubuntu의 터미널에서 환경을 확인한다. 설치에는 인터넷과 sudo 권한이 필요하다.
 
 ```bash
 cat /etc/os-release
 printf 'DISPLAY=%s\n' "$DISPLAY"
 ```
 
-`VERSION_ID="22.04"`가 보여야 한다. RViz는 WSLg를 사용하므로 `DISPLAY`가 비어 있으면 WSL GUI 환경을 확인한다. native Ubuntu Desktop 사용자도 다음 단계부터 같은 Bash 명령을 사용한다. 실물 제어는 WSL2에서 실행하지 않는다.
+`VERSION_ID="22.04"`가 보여야 한다. RViz와 카메라 촬영 창은 Ubuntu Desktop의 GUI 세션에서 실행한다. GUI가 없는 서버에서도 설치와 터미널 기반 가상 검사는 가능하다.
 
 ### 4.2 아무것도 없는 Ubuntu에서 시작
 
-Ubuntu Desktop 22.04 또는 WSL2 Ubuntu 22.04의 Bash에서 실행한다. Git도 없다면 먼저 설치한다. 복제 명령의 원격 주소는 이 저장소의 origin이다.
+Ubuntu 22.04의 Bash에서 실행한다. Git도 없다면 먼저 설치한다.
 
 ```bash
 sudo apt update
@@ -140,19 +139,28 @@ sudo apt install -y git
 git --version
 git clone https://github.com/LeeMin-hyeong/franka-demo.git
 cd franka-demo
-./scripts/start.sh
+./scripts/start.sh --install-only --with-camera
 ```
 
-Git은 저장소와 공식 소스를 가져오는 데 필요하다. `git --version`과 `ls scripts/start.sh`로 설치/복제를 확인한다. apt 실패는 인터넷과 sudo 권한을, clone 실패는 원격 주소와 계정 권한을 확인한다. 이미 복제한 저장소에서는 다시 clone하지 않는다. 현재 Windows 작업 폴더를 사용한다면 Ubuntu에서 `cd /mnt/c/Users/lmhst/git/franka-demo`로 이동할 수 있다.
+Git은 저장소와 공식 소스를 가져오는 데 필요하다. `git --version`과 `ls scripts/start.sh`로 설치/복제를 확인한다. apt 실패는 인터넷과 sudo 권한을, clone 실패는 원격 주소와 계정 권한을 확인한다. 이미 복제한 저장소에서는 다시 clone하지 않는다.
 
-`start.sh`는 다음 순서를 수행한다.
+위 한 명령은 다음 순서를 수행하고 **서버나 장치를 실행하지 않고 종료**한다.
 
-1. `setup.sh`: ROS가 없으면 ROS2 Humble부터 설치하고 공식 Franka 의존성을 준비한다.
+1. `setup.sh --with-camera`: ROS2 Humble, 공식 Franka 의존성과 D435i SDK/드라이버를 준비한다.
 2. `build.sh`: 프로젝트와 필요한 공식 패키지를 빌드한다.
-3. `doctor.sh`: 소스 버전, 설치 패키지와 Python import를 확인한다.
-4. `run.sh example`: Python으로 가상 팔과 그리퍼의 네 단계 예제를 실행한다.
+3. `doctor.sh --camera`: 소스 버전, 실행 파일, 보정 모듈, cv_bridge 영상 변환과 카메라 launch 구성을 확인한다.
 
-설치 중 sudo 비밀번호를 요청할 수 있다. 처음 빌드는 패키지 다운로드와 C++ 컴파일 때문에 시간이 걸린다. `SEQUENCE COMPLETE`와 RViz의 ready 팔 자세/40 mm 그리퍼 폭을 확인한다. 종료는 Ctrl+C다. GUI가 없는 서버에서는 `./scripts/start.sh --no-rviz`를 사용하며 터미널의 최종 상태로 확인한다. 실물 서버는 자동으로 시작하지 않는다.
+설치 중 sudo 비밀번호를 요청한다. 처음 다운로드와 C++ 빌드에는 시간이 걸린다. 마지막의 `설치/빌드/환경 점검 완료`를 확인한 뒤 필요한 프로그램을 실행한다.
+
+| 실행할 코드 | 준비되는 소프트웨어 | 설치 후 실행 |
+|---|---|---|
+| Python/C++ MoveIt와 가상 그리퍼 | Humble, MoveIt2, ros2_control, 공식 모델, RViz | `./scripts/run.sh example` 또는 `./scripts/run.sh moveit --language cpp` |
+| C++ 오프라인 계산/RViz | C++17, CMake, 관절 메시지/TF | `./scripts/run.sh libfranka-preview` |
+| 실물 API 학습 파일 | libfranka 0.20.4, Eigen/Poco/fmt/Pinocchio | build.sh에서 컴파일만 수행. 연결 실행 파일은 없음 |
+| 카메라 촬영/보정/좌표 검증 | NumPy, OpenCV, cv_bridge, message_filters, tf2_ros, D435i SDK/드라이버 | [촬영 → 계산 → 확인](docs/calibration.md) |
+| 실물 FR3/Hand 제어 | 공식 Franka ROS 드라이버와 Python API | [실물 준비 후 real-server](docs/real-robot.md). RT/권한/FCI/IP 설정은 별도 |
+
+카메라를 쓰지 않으면 `--with-camera`를 생략한다. 설치와 가상 예제를 연속 실행하려면 `./scripts/start.sh --with-camera`를 사용한다. GUI가 없는 경우 `--no-rviz`를 추가한다. 가상 예제의 완료 로그는 `SEQUENCE COMPLETE`이며 종료는 Ctrl+C다. 기본 실행은 실물 서버를 자동으로 시작하지 않는다.
 
 아래 단계의 자동 설치와 기존 ROS가 있는 환경의 재사용 동작을 구분한다. 실제 수행한 검증은 [검증 기록](docs/validation.md)에 있다. 완전한 신규 OS에서의 전체 설치/실행은 아직 미검증이다.
 
@@ -168,7 +176,13 @@ ROS가 없는 경우 `bootstrap_ros.sh`가 UTF-8 로케일을 생성하고 이�
 
 ROS2 Humble이 `/opt/ros/humble`에 이미 있으면 최초 ROS 설치 단계를 생략한다. 공통 setup은 MoveIt2, ros2_control/controllers, RViz, Xacro, Python ROS 액션/설치 도구와 빌드 도구를 설치한다. libfranka에 필요한 Eigen/Poco/fmt/Pinocchio/TinyXML2/console_bridge도 포함한다. 기존 MoveIt과 ABI가 섞이지 않게 관련 Humble 패키지를 함께 준비한다.
 
-**시스템 변경 범위:** apt 패키지 추가/갱신, 신규 ROS apt 저장소/서명키, 필요한 UTF-8 locale 생성과 Universe 활성화, 최초 rosdep 설정. `--no-remove`는 기존 패키지 제거가 필요한 의존성 해결을 중단한다. 사용자의 `.bashrc`와 기본 locale, 기존 워크스페이스와 소스는 덮어쓰거나 삭제하지 않는다. RT 커널, 실시간 권한 파일, 네트워크 주소, 로봇 펌웨어와 Desk 설정도 변경하지 않는다.
+보정 프로그램의 Python 의존성은 두 데모의 package.xml을 rosdep으로 읽어 설치한다. `--with-camera`는 같은 ROS apt 저장소의 `ros-humble-librealsense2`, `ros-humble-realsense2-camera`, `ros-humble-realsense2-description`을 추가한다. 별도 RealSense SDK를 pip나 소스로 중복 설치할 필요가 없다. [공식 RealSense의 ROS apt 설치 경로](https://github.com/realsenseai/realsense-ros#installation-on-ubuntu)를 사용한다.
+
+카메라 옵션은 일반 사용자 USB 접근에 필요한 [공식 udev 규칙](https://github.com/realsenseai/librealsense/blob/v2.58.4/config/99-realsense-libusb.rules)을 `/etc/udev/rules.d/99-realsense-libusb.rules`에 설치한다. 기존 규칙이 있으면 보존한다. 실행 중인 udev에 규칙만 다시 읽히며 연결 장치를 재설정하지 않는다. 설치 후 카메라 USB 케이블을 다시 연결한다.
+
+설치/빌드/실행 스크립트는 Ubuntu 시스템 Python을 사용하며 개인 pip 패키지를 제외한다. 셸 설정은 수정하지 않는다. Python 예제를 직접 실행할 때도 Conda/venv를 해제한 새 터미널에서 ROS와 프로젝트 install을 source한다.
+
+**시스템 변경 범위:** apt 패키지 추가/갱신, 신규 ROS apt 저장소/서명키, 필요한 UTF-8 locale 생성과 Universe 활성화, 최초 rosdep 설정. 카메라 옵션은 위 USB 권한 규칙도 추가한다. `--no-remove`는 기존 패키지 제거가 필요한 의존성 해결을 중단한다. 사용자의 `.bashrc`와 기본 locale, 기존 워크스페이스와 소스는 덮어쓰거나 삭제하지 않는다. RT 커널, 실시간 권한 파일, 네트워크 주소, 로봇 펌웨어와 Desk 설정도 변경하지 않는다.
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -199,23 +213,32 @@ ros2 pkg prefix fr3_offline_preview
 ./scripts/doctor.sh
 ```
 
+카메라를 포함한 설치 확인은 `./scripts/doctor.sh --camera`, 실물 PC의 RT/권한까지 확인하려면 `./scripts/doctor.sh --camera --real`을 사용한다. 이 점검은 로봇/카메라 장치와 통신하지 않으며 영상 수신이나 실제 동작 성공을 뜻하지 않는다.
+
 필요한 공식 ROS 패키지와 두 데모만 colcon의 `--paths`로 발견해서 빌드한다. 공식 저장소 전체를 자동 발견하면 범위 밖 모바일/Gazebo 패키지의 실행/테스트 의존성을 함께 고려할 수 있어 발견 경로를 명시한다.
 
 이어 standalone 계산기와 CTest를 빌드하고 libfranka 0.20.4 API 파일을 OBJECT로 컴파일한다. OBJECT는 실행 파일이 아니며 로봇 연결을 실행하지 않는다. 자체 CMake API 옵션은 기본 OFF이고 전체 build.sh만 컴파일 검사를 위해 ON으로 지정한다.
 
-두 패키지 경로와 CTest 결과, doctor의 설치/import `OK`를 확인한다. doctor는 파일/패키지 검사이며 로봇 접속이나 제어 명령을 보내지 않는다. 첫 컴파일 오류부터 살펴본다. `cc1plus killed`는 메모리 부족일 수 있으므로 `FR3_BUILD_JOBS=1 ./scripts/build.sh`로 재시도한다. 스크립트는 기존 build/install/src를 삭제하지 않는다.
+두 패키지 경로와 CTest 결과, doctor의 `INSTALLED EXECUTABLES PASS`와 설치/import `OK`를 확인한다. doctor는 파일/패키지 검사이며 로봇 접속이나 제어 명령을 보내지 않는다. 첫 컴파일 오류부터 살펴본다. `cc1plus killed`는 메모리 부족일 수 있으므로 `FR3_BUILD_JOBS=1 ./scripts/build.sh`로 재시도한다. 스크립트는 기존 build/install/src를 삭제하지 않는다.
 
 자동 검사를 재현하려면 빌드와 환경 source 후 다음을 실행한다.
 
 ```bash
 bash tests/test_bootstrap.sh
+bash tests/test_install_entrypoint.sh
+bash tests/test_camera_setup.sh
 python3 tests/check_robot_guards.py
 python3 tests/check_cli_defaults.py
 python3 tests/check_real_configuration.py
+PYTHONNOUSERSITE=1 /usr/bin/python3 tests/check_calibration.py
+PYTHONNOUSERSITE=1 /usr/bin/python3 tests/check_handeye.py
+PYTHONNOUSERSITE=1 /usr/bin/python3 tests/check_pick_guards.py
+ROS_DOMAIN_ID=127 PYTHONNOUSERSITE=1 /usr/bin/python3 tests/check_calibration_ros.py
 ./scripts/smoke_test.sh
+ROS_DOMAIN_ID=131 bash scripts/test_pick.sh
 ```
 
-첫 검사는 설치 명령을 대체해 ROS 없는 설치 분기와 실패 처리를 검사한다. 중간 검사는 실제 연결 없이 모델, IP, 정지/측정 상태와 CLI 기본 목표를 확인한다. 마지막 검사는 기본 ROS 도메인 79에서 headless Fake Hardware와 Python 팔/그리퍼 예제를 실제 실행하고 새 상태로 ready/40 mm 결과를 확인한다. ROS_DOMAIN_ID를 직접 지정하면 그 값을 사용하므로 기존 서버와 다른 도메인을 선택한다. 모두 실물 FCI를 호출하지 않는다. GitHub의 Ubuntu 22.04 CI도 같은 설치/빌드/검사 경로를 사용하며 현재 CI 실행 결과는 미검증이다.
+처음 세 검사는 설치 명령을 대체해 신규 설치, 카메라 옵션 전달, 기존 USB 규칙 보존과 실패 중단을 검사한다. Python 검사는 실제 연결 없이 모델, IP, 정지/측정 상태와 CLI 기본 목표, 보정 계산을 확인한다. 보정 ROS 검사는 도메인 127에서 합성 영상과 TF만 사용한다. 마지막 검사는 기본 도메인 79에서 headless Fake Hardware와 Python 팔/그리퍼 예제를 실행하고 새 상태로 ready/40 mm 결과를 확인한다. 검사 도메인은 기존 서버와 다르게 선택한다. 모두 실물 FCI를 호출하지 않는다. GitHub Ubuntu 22.04 CI에도 카메라 설치와 합성 보정 검사를 추가했으며 변경 후 원격 실행 결과는 미검증이다.
 
 ```bash
 ./scripts/build.sh --offline-only
@@ -256,7 +279,7 @@ RViz PlanningScene에서 Franka Hand가 장착된 FR3의 ready 초기 자세와 
 원하는 옵션으로 새 스택을 시작하는 예시다. 이미 A에서 실행 중이라면 중복 실행하지 않고 터미널 B에서 다음 명령을 사용한다.
 
 ```bash
-cd /mnt/c/Users/lmhst/git/franka-demo
+cd ~/franka-demo
 ./scripts/run.sh moveit-command --joint 4 --delta -0.1 --duration 3
 ./scripts/run.sh moveit-command --home --duration 5
 ```
@@ -299,7 +322,7 @@ MoveIt을 종료한 뒤 Ubuntu 터미널 A에서 실행한다.
 ./scripts/run.sh libfranka-preview
 ```
 
-공식 URDF, robot_state_publisher, C++ JointState 노드와 RViz를 실행한다. WSL에서 RViz 모델 초기화를 기다리도록 초기 자세를 15초 유지하고 3초 궤적을 재생한 뒤 최종 자세를 계속 발행한다. RViz RobotModel에서 팔이 움직이며 MoveIt과 ros2_control은 실행되지 않는다. 처음에는 움직이지 않는 것이 정상이며 터미널의 대기 시간 로그를 확인한다.
+공식 URDF, robot_state_publisher, C++ JointState 노드와 RViz를 실행한다. RViz 모델 초기화를 기다리도록 초기 자세를 15초 유지하고 3초 궤적을 재생한 뒤 최종 자세를 계속 발행한다. RViz RobotModel에서 팔이 움직이며 MoveIt과 ros2_control은 실행되지 않는다. 처음에는 움직이지 않는 것이 정상이며 터미널의 대기 시간 로그를 확인한다.
 
 ```text
 Offline Preview: 실제 libfranka FCI 제어를 실행하지 않습니다.
@@ -437,7 +460,7 @@ franka-demo/
 └── docs/                           API, 아키텍처, 검증 기록
 ```
 
-Pose 목표, 센서, Isaac Sim 연결은 현재 API에 구현하지 않았다. 확장 경계와 반환값은 [Python API 안내](docs/python-api.md)를 참고한다.
+관절 API에 더해 별도 [CV 선택 집기 작업](docs/pick-and-return.md)이 TCP Pose 계획과 직선 경로를 사용한다. 실물 카메라/로봇 검증은 아직 수행하지 않았다. 확장 경계와 반환값은 [Python API 안내](docs/python-api.md)를 참고한다. Isaac Sim 연결은 구현하지 않았다.
 
 ### 5.8 실제 FR3 연결과 명시적인 이동
 
@@ -449,7 +472,7 @@ Pose 목표, 센서, Isaac Sim 연결은 현재 API에 구현하지 않았다. �
 ./scripts/doctor.sh --real
 ```
 
-setup/build는 소프트웨어를 준비한다. doctor는 현재 커널과 셸의 rtprio/memlock을 확인하며 접속하지 않는다. 실패하면 실물 가이드의 해당 준비 항목을 해결한다. 모든 `real-*` 스크립트는 같은 PC 검사를 수행하고 WSL2를 거부한다.
+setup/build는 소프트웨어를 준비한다. doctor는 현재 커널과 셸의 rtprio/memlock을 확인하며 접속하지 않는다. 실패하면 실물 가이드의 해당 준비 항목을 해결한다. 모든 `real-*` 스크립트는 같은 PC 검사를 수행한다.
 
 터미널 A에서 서버를 시작한다. 처음에는 그리퍼 없이 연결한다.
 
@@ -478,7 +501,7 @@ Home은 공식 ready 목표까지 모든 팔 관절이 이동할 수 있다. 현
 ./scripts/run.sh real-command --robot-ip 172.16.0.2 --gripper-width 0.04 --duration 5
 ```
 
-실물 손은 MoveIt의 가상 손 궤적 대신 `/franka_gripper/move`를 호출한다. 전체 폭은 m이며, 현재 폭과 duration으로 속도를 계산해 최대 0.05 m/s로 제한한다. duration은 속도 계산 기준이며 정확한 완료 시간을 보장하지 않는다. grasp/힘 제어/자동 homing을 수행하지 않으며 표준 손가락의 자유 공간 이동만 다룬다.
+`set_gripper`는 MoveIt의 가상 손 궤적 대신 `/franka_gripper/move`를 호출한다. 전체 폭은 m이며, 현재 폭과 duration으로 속도를 계산해 최대 0.05 m/s로 제한한다. duration은 속도 계산 기준이며 정확한 완료 시간을 보장하지 않는다. 이 함수는 자유 공간 이동만 다룬다. 별도 `grasp(width, force)`는 공식 Grasp를 사용한다. 자동 homing은 하지 않는다.
 
 정상 종료는 A에서 Ctrl+C다. 클라이언트의 Ctrl+C는 소프트웨어 정지/취소 요청이며 물리적인 비상 정지를 대신하지 않는다. 실물 정지 결과가 불확실하면 같은 Robot 객체의 후속 이동을 막고 상태 조회/정지 재시도만 허용한다. 로봇 오류가 나면 후속 명령을 자동 재시도하거나 오류 복구하지 않는다. 실제 동작 성공 여부와 정지 성능은 연결한 장비에서 별도로 검증한다.
 
@@ -607,30 +630,31 @@ URDF는 정적인 모델이며 네트워크 장치나 명령 수신기가 아니
 
 **Q. 이 구조를 실제 FR3로 확장하려면 무엇이 필요한가?**
 
-실물 실행 진입점과 공식 드라이버 구성을 제공한다. 그러나 시스템/libfranka 호환성, FCI 라이선스/활성화, PREEMPT_RT/권한, Control LAN 직결, 하중/환경/로봇 상태와 현장 정지 절차는 장비에서 준비해야 한다. 상태 조회 → 작은 관절 목표 → 전체 경로 순서로 단계별 검증한다. WSL의 가상 성공과 C++ 컴파일 성공은 이 실물 검증을 대신하지 않는다. 구체적인 연결과 확인 명령은 [실물 가이드](docs/real-robot.md)에 있다.
+실물 실행 진입점과 공식 드라이버 구성을 제공한다. 그러나 시스템/libfranka 호환성, FCI 라이선스/활성화, PREEMPT_RT/권한, Control LAN 직결, 하중/환경/로봇 상태와 현장 정지 절차는 장비에서 준비해야 한다. 상태 조회 → 작은 관절 목표 → 전체 경로 순서로 단계별 검증한다. 가상 동작과 C++ 컴파일 성공은 실물 검증을 대신하지 않는다. 구체적인 연결과 확인 명령은 [실물 가이드](docs/real-robot.md)에 있다.
 
 ## 8. Trouble Shooting
 
 | 증상 | 확인과 해결 |
 |---|---|
 | ros2 명령/패키지 없음 | Ubuntu Bash 확인. `source /opt/ros/humble/setup.bash`와 `source ros2_ws/install/setup.bash` 실행. ROS_DISTRO/prefix 확인 |
-| Python의 fr3_moveit_demo import 실패 | `./scripts/build.sh` 후 이 저장소의 install/setup.bash를 source. Windows Python 대신 WSL Ubuntu Python 사용. ament_cmake_python 설치 오류는 setup 결과 확인 |
+| Python의 fr3_moveit_demo import 실패 | build.sh 후 install/setup.bash를 source. Conda/venv 해제, Ubuntu 시스템 Python 사용. ament_cmake_python 설치 오류는 setup 결과 확인 |
 | colcon 빌드 실패 | 첫 컴파일/CMake 오류와 setup 설치 결과 확인. cc1plus killed는 `FR3_BUILD_JOBS=1`로 재시도 |
+| `No executable found` | `./scripts/doctor.sh`와 `ros2 pkg executables fr3_moveit_demo`로 진입점 검색 확인. `--symlink-install`은 Python 원본의 실행 권한이 필요하다. 최신 Git 체크아웃과 overlay 설정을 확인하고 다시 빌드. 이전 체크아웃은 `chmod +x ros2_ws/src/fr3_moveit_demo/scripts/moveit_demo.py ros2_ws/src/fr3_moveit_demo/examples/basic_sequence.py ros2_ws/src/fr3_moveit_demo/examples/read_state.py` 후 doctor 재실행 |
 | geometric_shapes 공유 라이브러리 또는 random_numbers CMake 대상 없음 | 이전 설치와 새 MoveIt 패키지가 섞인 경우. setup을 재실행해 같은 Humble 저장소 버전을 설치하고 CMake를 다시 구성해 빌드. 다른 overlay를 source하지 않음 |
 | MoveIt/RViz 종료 시 segmentation fault | 먼저 ROS 라이브러리 버전 혼합을 확인하고 setup/빌드 수행. 검증 환경에서는 갱신 후에도 upstream 종료 소멸자 충돌이 재현됨. 이동 성공과 정상 종료는 구분하며 상세 내용은 검증 기록 참조 |
 | 클라이언트 No kinematics plugins defined 경고 | 관절 목표 예제는 클라이언트의 IK를 사용하지 않음. 서버의 공식 플래너/kinematics는 별도 로딩. Pose 목표로 확장할 때 클라이언트에도 공식 kinematics 설정 전달 |
 | ROS CLI의 XMLRPC/rclpy.ok 오류 | CLI 데몬 상태 문제. topic/node 확인에는 `--no-daemon` 사용. control/action list에 해당 옵션이 없는 Humble에서는 같은 ROS_DOMAIN_ID의 `ros2 daemon stop` 후 재조회. run.sh 준비 확인은 서비스에 직접 요청 |
 | MoveGroup 초기화 실패 | A의 launch 로그, `ros2 node list`, `ros2 action list` 확인. /move_group와 /move_action 필요. ROS_DOMAIN_ID 일치 확인 |
 | Current Robot State 미수신 | `ros2 topic echo /joint_states --once`의 7개 관절/타임스탬프 확인. 컨트롤러 active 확인. 상태 없이 실행하지 않음 |
-| WSL의 Moved backwards in time 또는 빌드 시각 경고 | WSL/Windows 시각 동기화 확인. 프리뷰 보간 시간은 steady_clock을 사용하지만 ROS 메시지 시각은 시스템 시각이므로 상태 모니터도 함께 확인 |
+| Moved backwards in time 또는 빌드 시각 경고 | PC 시각 동기화 확인. 프리뷰 보간은 steady_clock을 사용하지만 ROS 메시지 시각은 시스템 시각이므로 상태 모니터도 확인 |
 | URDF/Xacro 로드 실패 | `ros2 pkg prefix franka_description`와 2.8.1 태그 확인. 새 터미널에서 Humble와 이 install만 source |
-| RViz 모델 표시 실패 | WSLg DISPLAY, RobotModel 활성화, Fixed Frame fr3_link0, /tf 확인. MoveIt 그룹은 fr3_arm |
+| RViz 모델 표시 실패 | GUI 세션의 DISPLAY, RobotModel 활성화, Fixed Frame fr3_link0, /tf 확인. MoveIt 그룹은 fr3_arm |
 | 관절 이름/제한 불일치 | fr3_joint1..7 순서와 모델 버전 확인. Panda 이름이나 별도 prefix 모델은 지원하지 않음 |
 | libfranka 의존성 충돌 | 워크스페이스 0.20.4와 `Franka_DIR=ros2_ws/install/libfranka/lib/cmake/Franka` 확인. 다른 라이브러리를 임의 삭제하지 않고 prefix 확인 |
 | 중복 데모/Publisher | 기존 MoveIt/Preview/JointState GUI 종료. 추가 MoveIt 명령은 moveit-command. 두 모드는 동시에 실행하지 않음 |
 | 목표/속도/가속도 제한 초과 | delta를 줄이거나 duration을 늘림. Joint4는 음수 범위, Joint6 하한은 양수. 거부 후 일부 실행하지 않음 |
 | 공식 launch의 팔이 움직이지 않음 | effort/GenericSystem 차이 확인. 학습용 run.sh moveit의 가상 position 구성 사용 |
-| real 모드에서 RT 또는 권한 거부 | native Ubuntu 22.04의 PREEMPT_RT, `ulimit -r`, `ulimit -l` 확인. 권한 설정 후 다시 로그인. WSL은 가상용 |
+| real 모드에서 RT 또는 권한 거부 | Ubuntu 22.04의 PREEMPT_RT, `ulimit -r`, `ulimit -l` 확인. 권한 설정 후 다시 로그인 |
 | 실물 Connection timeout / UDP receive Timeout | Control LAN 주소, Desk의 FCI feature/활성화, 유선 연결과 UDP 방화벽 확인. 커널/패키지 설치만으로 연결이 준비되지는 않음 |
 | Incompatible Library Version | FR3 System Image와 Robot Server 호환 확인. 현재 libfranka 0.20.4는 5.9.0 이상 계열. 자동 펌웨어 변경 없음 |
 | 실물 손 액션 없음 / 목표 실패 | 서버 `--with-gripper`, 공식 `/franka_gripper/move`, 실제 손가락/장착 상태와 homing 필요 여부 확인. 자동 homing이나 grasp 재시도 없음 |

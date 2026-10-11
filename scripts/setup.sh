@@ -3,20 +3,28 @@
 set -euo pipefail
 source "$(dirname -- "${BASH_SOURCE[0]}")/common.sh"
 source "$DEMO_ROOT/scripts/bootstrap_ros.sh"
+source "$DEMO_ROOT/scripts/camera_setup.sh"
 
 sources_only=false
-case "${1:-}" in
-  '') ;;
+with_camera=false
+while (($#)); do
+  case "$1" in
   --sources-only) sources_only=true ;;
+  --with-camera) with_camera=true ;;
   -h|--help)
-    printf '사용법: ./scripts/setup.sh [--sources-only]\n'
+    printf '사용법: ./scripts/setup.sh [--with-camera | --sources-only]\n'
     printf '기본 실행은 ROS2 Humble부터 apt/rosdep 의존성과 공식 소스를 준비합니다.\n'
     printf 'ROS가 없으면 Ubuntu 패키지 업데이트와 ROS apt 저장소 설치도 수행합니다.\n'
     printf '%s\n' '--sources-only는 이미 설치한 git/vcs를 사용해 공식 소스만 가져옵니다.'
+    printf '%s\n' '--with-camera는 ROS apt의 D435i SDK/드라이버/모델도 설치합니다.'
     exit 0 ;;
   *) demo_die "알 수 없는 옵션: $1" ;;
-esac
-[[ $# -le 1 ]] || demo_die '옵션이 너무 많습니다.'
+  esac
+  shift
+done
+if "$sources_only" && "$with_camera"; then
+  demo_die '--sources-only와 --with-camera는 함께 사용할 수 없습니다.'
+fi
 demo_require_ubuntu
 case "$(dpkg --print-architecture)" in
   amd64|arm64) ;;
@@ -34,7 +42,7 @@ if ! "$sources_only"; then
   demo_bootstrap_ros
   demo_as_root apt-get update
   demo_as_root apt-get install -y --no-remove \
-    build-essential cmake git libeigen3-dev libpoco-dev libfmt-dev \
+    build-essential cmake git curl ca-certificates libeigen3-dev libpoco-dev libfmt-dev \
     libtinyxml2-dev libconsole-bridge-dev \
     python3-colcon-common-extensions python3-vcstool python3-rosdep iputils-ping \
     ros-humble-moveit ros-humble-geometric-shapes ros-humble-random-numbers \
@@ -44,6 +52,9 @@ if ! "$sources_only"; then
     ros-humble-pinocchio ros-humble-xacro ros-humble-rviz2 \
     ros-humble-rviz-common ros-humble-rviz-rendering ros-humble-rviz-default-plugins \
     ros-humble-robot-state-publisher ros-humble-joint-state-publisher
+  if "$with_camera"; then
+    demo_setup_camera
+  fi
 fi
 demo_source_ros
 command -v git >/dev/null || demo_die 'git이 없습니다.'
@@ -80,4 +91,7 @@ if ! "$sources_only"; then
 fi
 printf '공식 소스 준비 완료: franka_description 2.8.1, libfranka 0.20.4\n'
 printf '다운로드 경로: %s\n' "$DEMO_VENDOR"
+if "$with_camera"; then
+  printf 'D435i 소프트웨어 설치 완료. USB 3 연결과 실물 영상은 별도로 확인하세요.\n'
+fi
 printf '다음 명령: ./scripts/build.sh\n'
